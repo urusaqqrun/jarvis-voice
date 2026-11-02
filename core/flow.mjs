@@ -1,7 +1,7 @@
 // JarvisVoice 核心：一段話講完之後怎麼處理。Mac 小程式、CubeLV、平行沙盒都照這一份規則，各 App 只給接頭
 // （AI 整理、決策器、看畫面、找輸入框、寫進去）。
 //   1. judgeUtterance：AI 整理，順便判斷是不是指令。
-//   2. planOutput：整理完要做什麼——指令、刪掉剛剛那段、換回原文、只有語氣詞不寫、寫字。
+//   2. planOutput：整理完要做什麼——指令、刪掉剛剛那段、換回原文、只有語氣詞不寫、寫字、（App 開了 navigate 時）去某個地方。
 //   3. pickTarget：游標不在輸入框時，挑一個寫進去的框。
 // 不問使用者：拿不準就照 AI 整理的判斷；整理失敗照原稿寫；挑不到框由 App 決定（Mac 小框寫「沒貼上」、CubeLV 交給 CEO）。
 
@@ -71,10 +71,29 @@ export async function judgeUtterance({ raw, inField, edit, judge = null, intent 
   }
 }
 
+// 開頭是「打開／進到／去」的短句：叫電腦去某個地方（頁面、分頁、入口）。回 { verb, target } 或 null。
+// 「去年」「去掉」「去吃飯」這類不是要去哪裡；太長的是在講一件事，不是講地方的名字。
+const NAV_VERB = /^(?:請|幫我|麻煩|我要|我想)?\s*(打開|開啟|進到|進入|前往|切到|切換到|跳到|回到|去到|去|open|go\s+to|go\s+back\s+to|switch\s+to)\s*/i;
+const NOT_A_PLACE_AFTER_GO = /^(?:年|掉|過|除|世|吃|睡|玩|買|洗|做|找|跑|走|拿|接|上班|上課|上學|吧|了|嗎)/u;
+const NAV_TARGET_MAX = 20;
+export function navigationIntent(raw) {
+  const text = String(raw ?? '').trim().replace(/[\s。．.!！?？，,、]+$/u, '');
+  const m = text.match(NAV_VERB);
+  if (!m) return null;
+  const target = text.slice(m[0].length).replace(/^(?:我的|那個|一下|the\s+|my\s+)/iu, '').trim();
+  if (!target || target.length > NAV_TARGET_MAX) return null;
+  if (m[1] === '去' && NOT_A_PLACE_AFTER_GO.test(target)) return null;
+  return { verb: m[1], target };
+}
+
 // 整理完要做什麼。result：judgeUtterance 的結果（AI 整理關著是 null）。
 //   command：在畫面上做（操作代理 runAgent）；delete_last：刪掉剛剛寫的那段；revert_last：換回原文；
 //   filler：整段只有語氣詞，不寫；write：寫字（text 是要寫的字，failed 有值＝整理失敗照原稿）。
-export function planOutput({ raw, result }) {
+//   navigate：App 開了 navigate（CubeLV：游標不在輸入框時）、這段又是「打開／進到／去」開頭的短句，AI 卻判成打字（例如「打開隨手記」
+//     的隨手記已經改名、「打開手機」對不到地方）：不寫字，由 App 找那個地方，找不到就說找不到，不把這句寫進別的框。
+export function planOutput({ raw, result, navigate = false }) {
+  const nav = navigate && result?.mode !== 'command' ? navigationIntent(raw) : null;
+  if (nav && (result?.failed || result?.mode === 'insert' || !result)) return { kind: 'navigate', target: nav.target, text: raw };
   if (result?.failed) return { kind: 'write', text: raw, mode: 'insert', ai: false, failed: result.failed };
   if (result?.mode === 'command') return { kind: 'command', result };
   if (result?.mode === 'delete_last') return { kind: 'delete_last' };

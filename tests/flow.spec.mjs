@@ -60,6 +60,30 @@ test('挑輸入框：上次寫的、只有一個就直接用；拿不準才問�
   assert.equal(await core.pickTarget({ candidates: [] }), null);
 });
 
+test('挑輸入框：App 標了 outbound（一按送出就給別人）的框不自動挑，就算只有它、或上次寫過它', async () => {
+  const box = (handle, role, label, y, extra = {}) => ({ handle, role, label, x: 0, y, w: 300, h: 40, ...extra });
+  const reply = box(1, 'AXTextArea', '回覆', 700, { outbound: true });
+  assert.equal(await core.pickTarget({ candidates: [reply] }), null);
+  assert.equal(await core.pickTarget({ candidates: [reply], remembered: { role: 'AXTextArea', label: '回覆', frame: { y: 700 } } }), null);
+  const note = box(2, 'AXTextArea', '內文', 300);
+  assert.equal((await core.pickTarget({ candidates: [reply, note] })).choice.handle, 2);
+});
+
+test('去某個地方：開了 navigate，「打開／進到／去」開頭的短句 AI 判成打字就不寫；沒開照舊寫字', () => {
+  assert.deepEqual(core.navigationIntent('打開隨手記'), { verb: '打開', target: '隨手記' });
+  assert.deepEqual(core.navigationIntent('進到我的市集。'), { verb: '進到', target: '市集' });
+  assert.deepEqual(core.navigationIntent('Open settings'), { verb: 'Open', target: 'settings' });
+  assert.equal(core.navigationIntent('去年營收成長多少'), null);
+  assert.equal(core.navigationIntent('去吃飯了'), null);
+  assert.equal(core.navigationIntent('明天四點開會記得帶筆電'), null);
+  assert.equal(core.navigationIntent('打開之後幫我把上週的三份報告整理成一份給老闆看'), null);
+  assert.deepEqual(core.planOutput({ raw: '打開手機', result: ed('insert', '打開手機。'), navigate: true }), { kind: 'navigate', target: '手機', text: '打開手機' });
+  assert.equal(core.planOutput({ raw: '打開手機', result: { failed: '逾時' }, navigate: true }).kind, 'navigate');
+  assert.equal(core.planOutput({ raw: '打開手機', result: ed('insert', '打開手機。') }).kind, 'write');
+  assert.equal(core.planOutput({ raw: '打開市集', result: ed('command', '', { goal: '打開市集' }), navigate: true }).kind, 'command');
+  assert.equal(core.planOutput({ raw: '去年營收成長多少', result: ed('insert', '去年營收成長多少？'), navigate: true }).kind, 'write');
+});
+
 test('幾句合成一段：停滿 pauseMs 才交出去；提早整理好、停了 pasteAfterMs 就交出去並帶著整理結果；又開口就作廢', async () => {
   let clock = 0;
   const s = { speaking: false, busy: false, lastVoiceAt: 0 };
@@ -146,6 +170,8 @@ test('小框：每個階段的標題、內文、顏色、停多久；三種語�
   assert.equal(core.bubbleContent({ state: 'command', text: '打開行事曆', detail: '第 1 步：點 按鈕「行事曆」' }, 'zh').body, '打開行事曆\n第 1 步：點 按鈕「行事曆」');
   assert.equal(core.bubbleContent({ state: 'failed', text: 'g', detail: '找不到' }).loud, true);
   assert.equal(core.bubbleContent({ state: 'nofield', detail: '複製上一句' }, 'zh').body, '複製上一句');
+  assert.equal(core.bubbleContent({ state: 'noplace', text: '打開手機' }, 'zh').title, '找不到這個頁面');
+  assert.equal(core.bubbleContent({ state: 'noplace', text: '打開手機' }, 'zh').body, '打開手機');
   assert.equal(core.bubbleContent({ state: 'error', text: 'x' }).tone, 'red');
   assert.equal(core.bubbleContent({ state: 'hide' }), null);
   assert.equal(core.bubbleContent({ state: 'hearing', text: '字'.repeat(100) }).body.length, 85);

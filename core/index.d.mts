@@ -16,7 +16,8 @@ export function buildPrompt(input: { transcript: string; context?: EditContext; 
 export function parseResult(raw: string, opts?: { commands?: boolean }): Omit<EditResult, 'ms'> | null;
 export function editSegment(input: { complete: Complete; transcript: string; context?: EditContext; style?: string; vocabulary?: string[]; commands?: boolean }): Promise<EditResult>;
 
-export interface ScreenElement { handle: number; role: string; subrole?: string; label: string; value?: string; x: number; y: number; w: number; h: number; focused?: boolean; ocr?: boolean }
+/** outbound：一按送出就給別人的框（聊天室、留言、回信），游標不在框裡時不自動挑（App 標） */
+export interface ScreenElement { handle: number; role: string; subrole?: string; label: string; value?: string; x: number; y: number; w: number; h: number; focused?: boolean; ocr?: boolean; outbound?: boolean }
 export interface Frame { x?: number; y?: number; w?: number; h?: number; title?: string }
 /** 看畫面的接頭：游標在輸入框時判斷是不是指令（judgeInField）用 */
 export interface ScreenAdapter {
@@ -309,8 +310,12 @@ export type OutputPlan =
   | { kind: 'delete_last' }
   | { kind: 'revert_last' }
   | { kind: 'filler' }
-  | { kind: 'write'; text: string; mode: EditMode; ai: boolean; failed?: string; result?: EditResult | null };
-export function planOutput(input: { raw: string; result: JudgedUtterance | undefined }): OutputPlan;
+  | { kind: 'write'; text: string; mode: EditMode; ai: boolean; failed?: string; result?: EditResult | null }
+  | { kind: 'navigate'; target: string; text: string };
+/** navigate：App 要「打開／進到／去」開頭、AI 判成打字的短句改成 navigate（CubeLV：游標不在輸入框時）；不給照舊 */
+export function planOutput(input: { raw: string; result: JudgedUtterance | undefined; navigate?: boolean }): OutputPlan;
+/** 開頭是「打開／進到／去」的短句：要去的地方；不是就回 null */
+export function navigationIntent(raw: string): { verb: string; target: string } | null;
 export function pickTarget(input: { candidates: ScreenElement[]; window?: Frame | null; remembered?: { role: string; label?: string; frame?: { y: number } } | null;
   transcript?: string; decider?: Decider | null; context?: { app?: string }; log?: (m: string) => void }): Promise<{ choice: ScreenElement; reason: string } | null>;
 
@@ -354,7 +359,7 @@ export function speechBubble(input: {
 }): { state: 'working' | 'hearing' | 'ignored'; text: string; speaker: '' | 'mine' | 'short' } | null;
 
 // ---- 小框的階段（bubble.mjs）----
-export type BubbleState = 'hearing' | 'ignored' | 'working' | 'pasted' | 'command' | 'done' | 'failed' | 'nofield' | 'error' | 'hide';
+export type BubbleState = 'hearing' | 'ignored' | 'working' | 'pasted' | 'command' | 'done' | 'failed' | 'nofield' | 'noplace' | 'error' | 'hide';
 export interface BubbleEvent { state: BubbleState; text?: string; detail?: string; speaker?: '' | 'mine' | 'short' }
 export interface BubbleContent { title: string; body: string; tone: 'blue' | 'green' | 'orange' | 'red'; loud: boolean; busy: boolean; result: boolean; holdMs: number | null }
 export const BUBBLE_HOLD_MS: Record<string, number>;

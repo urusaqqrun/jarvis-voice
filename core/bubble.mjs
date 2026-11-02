@@ -13,7 +13,7 @@
 // lang：zh（台灣正體）、en、ja；認不得的用 en。
 
 // 指令完成只要看一眼就收（擋在畫面上很礙事）；沒完成、出錯要看得清楚原因，停久一點
-export const BUBBLE_HOLD_MS = { pasted: 1400, done: 700, ignored: 2500, nofield: 3000, failed: 3500, error: 4000 };
+export const BUBBLE_HOLD_MS = { pasted: 1400, done: 700, ignored: 2500, nofield: 3000, noplace: 3500, failed: 3500, error: 4000 };
 export const BUBBLE_MAX_CHARS = 84; // 內文最多三行：一行約 30 個中文字，只留最後這麼多字，最新的字才一定看得到
 
 const TEXT = {
@@ -29,6 +29,8 @@ const TEXT = {
   failed: ['指令沒完成', 'Command not done', 'コマンド未完了'],
   // 不提游標（10/26 使用者：手機上根本沒有游標；JarvisVoice 本來就會自己找框，找不到才說）
   nofield: ['找不到可以寫進去的地方，這段沒寫', "Couldn't find a place to write this", '書き込める場所が見つからなかったため、書き込んでいません'],
+  // 「打開／進到／去」開頭、App 對不到地方（planOutput 的 navigate）：不寫字，說找不到
+  noplace: ['找不到這個頁面', "Couldn't find that page", 'そのページが見つかりません'],
   error: ['出錯了', 'Something went wrong', 'エラーが発生しました'],
   step: ['第 {n} 步：', 'Step {n}: ', 'ステップ {n}：'],
 };
@@ -82,6 +84,7 @@ export function bubbleContent(e, lang = 'zh') {
     case 'done': return out(t('done'), e.text, 'green', { result: true });
     case 'failed': return out(t('failed'), lines(e.text, e.detail), 'orange', { loud: true });
     case 'nofield': return out(t('nofield'), e.detail, 'orange', { loud: true });
+    case 'noplace': return out(t('noplace'), lines(e.text, e.detail), 'orange', { loud: true });
     case 'error': return out(t('error'), e.text, 'red', { loud: true });
     default: return null;
   }

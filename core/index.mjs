@@ -20,7 +20,7 @@ export { isSpeech, onlyFiller, withSpacing } from './text.mjs';
 export { readingOrder, ocrText, joinScreen } from './ocr.mjs';
 export { PROVIDERS, DEFAULT_MODELS, PROVIDER_NAMES, DEFAULT_URLS, ownKeyService } from './providers.mjs';
 export { hedge } from './hedge.mjs';
-export { judgeUtterance, judgeInField, planOutput, pickTarget, NOT_IN_FIELD_SURE } from './flow.mjs';
+export { judgeUtterance, judgeInField, planOutput, pickTarget, navigationIntent, NOT_IN_FIELD_SURE } from './flow.mjs';
 export { createSegmenter, heardText, speechBubble, SEGMENT_PAUSE_MS, PASTE_AFTER_MS, MAX_SEGMENT_CHARS } from './segment.mjs';
 export { bubbleContent, stepText, clipHead, BUBBLE_HOLD_MS, BUBBLE_MAX_CHARS } from './bubble.mjs';
 export { createVoiceprint, createRemoteVoiceprint, passesGate, pickEnrollment, cosine, normalize, meanVector, VOICEPRINT_THRESHOLD, VOICEPRINT_MIN_SECONDS, VOICEPRINT_SHORT_THRESHOLD, ENROLL_SECONDS, REMOTE_VOICEPRINT_MODEL } from './voiceprint.mjs';
