@@ -63,7 +63,8 @@ The AI will:
   - Faded mark: standing by (the frontmost app is excluded).
   - The mark with a slash through it (like a "no" sign): paused, not listening.
   - Triangle with an exclamation mark: something went wrong; open the menu to see why.
-- **Bubble next to the cursor**: while you talk it shows what it hears, right under the cursor; when you stop it says it's cleaning up, then "Pasted" and fades out. Voice commands show each step; if nothing was pasted or something failed, it says why. The bubble never takes focus, and clicks go straight through it.
+- **Text goes in right away**: transcribed text doesn't wait for AI cleanup. Each sentence goes straight into the field where your cursor is, so you can send whenever you like; when cleanup is ready it replaces that passage. If you've already sent it, edited it, moved the cursor or switched apps, it stays as it is. It only waits for cleanup when the cursor isn't in a field, text is selected, or you start with "command" (`speed.draft: false` makes it always wait).
+- **Bubble next to the cursor**: while you talk it shows what hasn't reached the field yet, right under the cursor; when you stop it says it's cleaning up, then "Cleaned up" and fades out ("Pasted" when it waited for cleanup). Voice commands show each step; if nothing was pasted or something failed, it says why. The bubble never takes focus, and clicks go straight through it.
 - **When the cursor isn't in a text field** (you're reading a web page, selecting files in Finder): with auto-focus off, nothing is written, the icon briefly shows a cross, and "Copy last sentence" in the menu gets the text back; with auto-focus on, it picks the right field in the window and writes there.
 - **Meetings**: it doesn't listen while Zoom, Teams, FaceTime or Webex is frontmost. If people are talking nearby or a video is playing, choose "Pause listening" in the menu.
 - **Menu**: pause/resume, copy last sentence, revert to the raw transcript, transcription (on-device / OpenAI / CubeLV / ParallelSandbox), AI cleanup (off / OpenAI / DeepSeek / Claude / CubeLV), auto-focus, voice commands, edit vocabulary, edit config, set up your own key, sign in to / out of CubeLV, help, quit.
@@ -180,7 +181,8 @@ If you'd rather not get and look after your own keys, you can use a CubeLV accou
 | `ai.models` | Use a different model, e.g. `{ "openai": "gpt-4.1-mini" }` |
 | `ai.segmentPauseMs` | How long a pause ends a passage, default 1800 (only waited out in full when early cleanup is off) |
 | `speed.earlyTranscribeMs` | Send the sentence for transcription after this much silence, default 400 (discarded if you keep talking); 0 turns it off |
-| `speed.pasteAfterMs` | Start cleanup as soon as the text is back, and paste if you've been quiet this long when it's ready, default 1200; 0 waits for `ai.segmentPauseMs` |
+| `speed.draft` | Put the raw text in the field as soon as it's back and swap in the cleaned-up text when it's ready (not if you've already sent or edited it), on by default; off waits for cleanup before writing anything |
+| `speed.pasteAfterMs` | Start cleanup as soon as the text is back, and paste (or swap out the raw text) if you've been quiet this long when it's ready, default 1200; 0 waits for `ai.segmentPauseMs` |
 | `speed.hedge` | How many copies of each transcription and cleanup request to send at once, using whichever answers first, default 2 (cost scales with it) |
 | `speed.bubble` / `speed.preview` | The bubble next to the cursor, and the live preview while you talk (on-device SenseVoice, shown but never pasted); both on by default |
 | `ai.styles` | Tone per app (bundle id) or website (domain), e.g. `{ "com.tinyspeck.slackmacgap": "casual and short" }` |

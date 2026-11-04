@@ -41,6 +41,7 @@
 //                                      // 第三層的決策器：TypeSafe 的 Jev（快、便宜）；沒有 key 就改問 AI 整理那家
 //   "speed": {                         // 講完到貼上的速度（cubelv_docs/計劃/2026-10-19_JarvisVoice語音加速規劃.md）
 //     "earlyTranscribeMs": 400,        // 停多久就先把這句送去轉寫（0.85 秒才確定講完；中間又開口就作廢）；0 是不提早
+//     "draft": true,                   // 字一回來就先把原稿寫進輸入框，AI 整理好再換掉（已經送出、自己改過就不換）；false 是整理好才寫
 //     "pasteAfterMs": 1200,            // 字一回來就開始 AI 整理，整理好時已經停了這麼久就直接貼（不等 ai.segmentPauseMs）；0 是不提早
 //     "hedge": 2,                      // 轉寫、AI 整理每次同時送幾份，誰先回用誰（砍掉偶爾特別慢的那幾次，費用跟著乘）
 //     "preview": true,                 // 講話中用本機 SenseVoice 認目前這句，在游標旁的小框即時顯示（只顯示，不貼）
@@ -117,7 +118,7 @@ export function defaults() {
     autoFocus: true,
     commands: true,
     jev: { apiKey: '', apiKeyFile: '', apiKeyCommand: '', model: 'jev-latest' },
-    speed: { earlyTranscribeMs: 400, pasteAfterMs: 1200, hedge: 2, preview: true, bubble: true, warm: true },
+    speed: { earlyTranscribeMs: 400, draft: true, pasteAfterMs: 1200, hedge: 2, preview: true, bubble: true, warm: true },
     voiceprint: { enabled: false, threshold: 0.3, minSeconds: 1.5, shortThreshold: 0.4 },
     debug: { saveAudio: false },
   };

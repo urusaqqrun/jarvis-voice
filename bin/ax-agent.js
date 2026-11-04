@@ -9,7 +9,10 @@
 //                                       screen：要幾個字的「視窗裡看得到的字」（不含輸入框），0 就不讀
 //                                       frame：視窗、caret：游標（拿不到就是輸入框）在螢幕上的位置 { x, y, w, h }（左上角原點），給游標旁的小框用
 //   paste   { pid, text, dry }        → { result: ok | no-accessibility | not-text-field:<角色> | not-front | dry:<字>, handle }
-//                                       按完 Cmd+V 就回覆，等 app 讀剪貼簿、還原剪貼簿（0.35 秒）在回覆之後才做
+//                                       按完 Cmd+V 就回覆，等 app 讀剪貼簿（游標動了才算讀完，讀不到游標等 0.35 秒）、還原剪貼簿在回覆之後才做
+//   draft   { pid, text, expect, chars } → { result: ok | no-accessibility | no-field | secure | unreadable | has-selection | not-front, handle, continued, before }：
+//                                       先寫草稿：跟 paste 一樣貼在游標這裡，但之後要換得掉才寫（讀得到游標前的字、沒有選取）；
+//                                       continued：游標前面是不是 expect（前面的草稿）；before：寫之前游標前的字（最多 chars 個）
 //   replace { pid, old, text }        → { result: ok | mismatch | no-field | not-front }：游標前面正好是 old 就選起來換成 text（空字串＝刪掉）
 //   按鍵（Cmd+V、Delete）只在 pid 確實是最前面的 app 時才送，不然回 not-front
 //   targets { pid }                   → { window: {x,y,w,h,title}, candidates: [{ handle, role, subrole, label, x, y, w, h, focused, enabled }] }
@@ -44,6 +47,8 @@ ObjC.bindFunction('CGWindowListCopyWindowInfo', ['id', ['int', 'int']]);
 ObjC.bindFunction('CGPreflightScreenCaptureAccess', ['bool', []]);
 ObjC.bindFunction('CGRequestScreenCaptureAccess', ['bool', []]);
 ObjC.bindFunction('CFEqual', ['bool', ['id', 'id']]);
+ObjC.bindFunction('CGEventSourceSecondsSinceLastEventType', ['double', ['int', 'int']]);
+ObjC.bindFunction('AXUIElementIsAttributeSettable', ['int', ['id', 'id', 'void *']]);
 
 const TEXT_ROLES = ['AXTextField', 'AXTextArea', 'AXComboBox', 'AXSearchField'];
 const K_CFRANGE = 4; // kAXValueCFRangeType
@@ -116,6 +121,12 @@ function rangeValue(location, length) {
 
 function setRange(el, location, length) {
   return $.AXUIElementSetAttributeValue(el, $('AXSelectedTextRange'), rangeValue(location, length)) === 0;
+}
+
+function rangeSettable(el) {
+  const out = $.NSMutableData.dataWithLength(1);
+  return $.AXUIElementIsAttributeSettable(el, $('AXSelectedTextRange'), out.mutableBytes) === 0
+    && ObjC.unwrap(out.base64EncodedStringWithOptions(0)) !== 'AA==';
 }
 
 function stringForRange(el, location, length) {
@@ -410,19 +421,31 @@ function parseKey(name) {
   return code === null ? null : { code, flags };
 }
 
-// 回覆送出後才做的事（貼上後等 app 讀剪貼簿、還原剪貼簿）：node 不用等這 0.35 秒，下一個請求才會等
+// 回覆送出後才做的事（貼上後等 app 讀剪貼簿、還原剪貼簿）：node 不用等，下一個請求才會等
 let afterReply = null;
+const PASTE_READ_LIMIT = 2; // 秒：游標一直不動（app 不收這段字）也要還原剪貼簿
 
-// 暫存剪貼簿 → 放字 → Cmd+V → （回覆之後）等 app 讀完 → 還原剪貼簿
-function pasteText(value, dry) {
+// 暫存剪貼簿 → 放字 → Cmd+V → （回覆之後）等 app 讀完 → 還原剪貼簿。
+// root：寫進去的輸入框，游標動了才算讀完。不能只等固定時間：app 忙的時候太早還原，貼進去的會是使用者原本剪貼簿裡的字
+// （11/04 實測剛開的 Chrome 超過 0.35 秒才讀）。讀不到游標才等 0.35 秒
+function pasteText(value, dry, root = null) {
   const pb = $.NSPasteboard.generalPasteboard;
   const saved = snapshot(pb);
+  const caret = root && !dry ? rangeOf(root) : null;
   pb.clearContents;
   pb.setStringForType($(value), $.NSPasteboardTypeString);
   let placed = '';
   if (dry) placed = ObjC.unwrap(pb.stringForType($.NSPasteboardTypeString)) || '';
   else pressKey(KEY_V, CMD);
-  afterReply = () => { delay(0.35); restore(pb, saved); };
+  afterReply = () => {
+    if (caret) {
+      until(() => {
+        const now = rangeOf(root);
+        return !!now && (now.location !== caret.location || now.length !== caret.length);
+      }, PASTE_READ_LIMIT);
+    } else delay(0.35);
+    restore(pb, saved);
+  };
   return placed;
 }
 
@@ -443,26 +466,81 @@ function paste({ pid, text: value, dry, ask }) {
   const f = pid ? focusedField(appElement(pid)) : { known: false };
   if (f.known && !f.editable) return { result: `not-text-field:${f.role}` };
   if (!dry && pid && !isFront(pid)) return { result: 'not-front' };
-  const placed = pasteText(value, dry);
+  const placed = pasteText(value, dry, f.root ?? null);
   return { result: dry ? `dry:${placed}` : 'ok', handle: f.root ? keep(f.root) : 0 };
 }
+
+// 游標前面 length 個字
+function textBefore(root, range, length) {
+  const start = range.location - length;
+  return stringForRange(root, start, length) ?? text(root, 'AXValue').slice(start, range.location);
+}
+
+// 網頁編輯器可能把空白存成不換行空白
+const sameText = (a, b) => a.replace(/ /g, ' ') === b.replace(/ /g, ' ');
+
+// 游標（沒有選取）前面正好是 expect
+function caretAfter(root, expect) {
+  const range = rangeOf(root);
+  if (!range || range.length || range.location < expect.length) return false;
+  return sameText(textBefore(root, range, expect.length), expect);
+}
+
+// 網頁、Electron 的輔助使用資訊晚一點才更新（剛貼的字、剛選的範圍）：等一下再說對不上
+function until(check, seconds) {
+  const stop = Date.now() + seconds * 1000;
+  for (;;) {
+    if (check()) return true;
+    if (Date.now() >= stop) return false;
+    delay(0.02);
+  }
+}
+
+// 先寫草稿：之後換不掉（讀不到游標前的字、改不了選取範圍）、選取了字（又講話可能是要改寫，等 AI 判斷）都不寫，由 listen.mjs 照原本整理好才寫
+function draft({ pid, text: value, expect = '', chars = 400 }) {
+  if (!trusted(false)) return { result: 'no-accessibility' };
+  const f = focusedField(appElement(pid));
+  if (!f.known || !f.editable) return { result: 'no-field' };
+  if (f.secure) return { result: 'secure' };
+  const first = rangeOf(f.root);
+  if (!first || !rangeSettable(f.root)) return { result: 'unreadable' };
+  if (first.length) return { result: 'has-selection' };
+  if (!isFront(pid)) return { result: 'not-front' };
+  const continued = !expect || until(() => caretAfter(f.root, expect), 0.25);
+  const range = rangeOf(f.root) ?? first;
+  if (range.length) return { result: 'has-selection' };
+  const take = Math.min(range.location, chars);
+  const before = take ? textBefore(f.root, range, take) : '';
+  if (take && !before) return { result: 'unreadable' };
+  pasteText(value, false, f.root);
+  return { result: 'ok', handle: keep(f.root), continued, before };
+}
+
+const kCGEventSourceStateHIDSystemState = 1;
+const kCGEventLeftMouseDown = 1;
+const kCGEventKeyDown = 10;
+const TOUCH_SETTLE = 0.3;
+const justTouched = () => Math.min(
+  $.CGEventSourceSecondsSinceLastEventType(kCGEventSourceStateHIDSystemState, kCGEventKeyDown),
+  $.CGEventSourceSecondsSinceLastEventType(kCGEventSourceStateHIDSystemState, kCGEventLeftMouseDown),
+) < TOUCH_SETTLE;
 
 // 游標前面正好是剛貼的 old：選起來，換成 text（空字串就刪掉）。對不上就不動
 function replace({ pid, old, text: value }) {
   if (!trusted(false)) return { result: 'no-accessibility' };
   const f = focusedField(appElement(pid));
   if (!f.editable) return { result: 'no-field' };
-  const range = rangeOf(f.root);
-  if (!range || range.length || range.location < old.length) return { result: 'mismatch' };
-  const start = range.location - old.length;
-  const before = stringForRange(f.root, start, old.length) ?? text(f.root, 'AXValue').slice(start, range.location);
-  if (before !== old) return { result: 'mismatch' };
+  // 剛按過鍵盤、滑鼠（可能正按下送出，app 還沒清空輸入框）：等一下再比對，不然字會貼回清空後的框
+  if (justTouched()) delay(TOUCH_SETTLE);
+  if (!until(() => caretAfter(f.root, old), 0.25)) return { result: 'mismatch' };
   if (!isFront(pid)) return { result: 'not-front' };
-  if (!setRange(f.root, start, old.length) || text(f.root, 'AXSelectedText') !== old) {
+  const range = rangeOf(f.root);
+  const start = range.location - old.length;
+  if (!setRange(f.root, start, old.length) || !until(() => sameText(text(f.root, 'AXSelectedText'), old), 0.3)) {
     setRange(f.root, range.location, 0);
     return { result: 'mismatch' };
   }
-  if (value) pasteText(value, false);
+  if (value) pasteText(value, false, f.root);
   else pressKey(KEY_DELETE);
   return { result: 'ok' };
 }
@@ -958,6 +1036,7 @@ const OPS = {
   check: ({ ask }) => ({ trusted: trusted(ask) }),
   context,
   paste,
+  draft,
   replace,
   targets,
   focus,

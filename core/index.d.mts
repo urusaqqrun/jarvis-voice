@@ -316,6 +316,7 @@ export type OutputPlan =
 export function planOutput(input: { raw: string; result: JudgedUtterance | undefined; navigate?: boolean }): OutputPlan;
 /** 開頭是「打開／進到／去」的短句：要去的地方；不是就回 null */
 export function navigationIntent(raw: string): { verb: string; target: string } | null;
+export function isExplicitCommand(raw: string): boolean;
 export function pickTarget(input: { candidates: ScreenElement[]; window?: Frame | null; remembered?: { role: string; label?: string; frame?: { y: number } } | null;
   transcript?: string; decider?: Decider | null; context?: { app?: string }; log?: (m: string) => void }): Promise<{ choice: ScreenElement; reason: string } | null>;
 
@@ -358,8 +359,36 @@ export function speechBubble(input: {
   confirmedOnly?: boolean;
 }): { state: 'working' | 'hearing' | 'ignored'; text: string; speaker: '' | 'mine' | 'short' } | null;
 
+// ---- 草稿：字先進輸入框，整理好再換掉（draft.mjs）----
+export interface Draft<W = unknown> {
+  /** 框裡這份草稿現在的字 */
+  text: string;
+  /** 寫之前游標前的字（給 AI 當上下文） */
+  before: string;
+  where: W;
+  /** 不再換了（送出了、自己改了、游標移走了） */
+  gone: boolean;
+  writtenAt: number;
+}
+export interface DraftWriter<W = unknown> {
+  add(sentence: string): Promise<{ written: boolean; restart: boolean }>;
+  close(): Draft<W> | null;
+  /** 'ok' 換好了、'same' 字一樣不用換、'gone' 早就不再換，其他是 replace 回的原因 */
+  settle(draft: Draft<W>, text: string): Promise<string>;
+  forget(draft: Draft<W>): void;
+  current(): Draft<W> | null;
+  busy(): boolean;
+}
+export function createDraftWriter<W = unknown>(input: {
+  write: (text: string, expect: string) => Promise<{ ok: boolean; continued?: boolean; before?: string; where?: W }>;
+  replace: (old: string, text: string, draft: Draft<W>) => Promise<string>;
+  commands?: () => boolean;
+  log?: (m: string) => void;
+  now?: () => number;
+}): DraftWriter<W>;
+
 // ---- 小框的階段（bubble.mjs）----
-export type BubbleState = 'hearing' | 'ignored' | 'working' | 'pasted' | 'command' | 'done' | 'failed' | 'nofield' | 'noplace' | 'error' | 'hide';
+export type BubbleState = 'hearing' | 'ignored' | 'working' | 'pasted' | 'polished' | 'command' | 'done' | 'failed' | 'nofield' | 'noplace' | 'error' | 'hide';
 export interface BubbleEvent { state: BubbleState; text?: string; detail?: string; speaker?: '' | 'mine' | 'short' }
 export interface BubbleContent { title: string; body: string; tone: 'blue' | 'green' | 'orange' | 'red'; loud: boolean; busy: boolean; result: boolean; holdMs: number | null }
 export const BUBBLE_HOLD_MS: Record<string, number>;

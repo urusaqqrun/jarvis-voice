@@ -1,0 +1,20 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>JarvisVoice 草稿測試</title></head>
+<body>
+  <p><textarea aria-label="純文字框" rows="4" cols="60"></textarea></p>
+  <div aria-label="網頁編輯器" role="textbox" aria-multiline="true" contenteditable="true" style="white-space: pre-wrap; min-height: 4em; border: 1px solid #888"></div>
+  <script>
+    // 跟聊天室一樣：按 Enter 就送出、清空輸入框
+    for (const field of document.querySelectorAll('textarea, [contenteditable]')) {
+      field.addEventListener('keydown', (event) => {
+        if (event.key !== 'Enter') return;
+        event.preventDefault();
+        if (field.tagName === 'TEXTAREA') field.value = '';
+        else field.textContent = '';
+      });
+    }
+    document.querySelector('textarea').focus();
+  </script>
+</body>
+</html>

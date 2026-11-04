@@ -4,7 +4,7 @@
 //   hearing：講話中，text 是聽到的字；speaker 是聲紋比對（mine 你說的、short 短句）。
 //            聲紋還在背景學的時候不標、也不說還要講多久（core/voiceprint.mjs：沒有建立聲紋這一步）；
 //   ignored：聲紋不像你、這句不轉寫（text 是預覽聽到的字；CubeLV 一直聽不跳，見 segment.mjs speechBubble 的 confirmedOnly）；
-//   working：整理中（text 是轉寫原稿）；pasted：已貼上；
+//   working：整理中（text 是轉寫原稿；字已經先進框了就不給）；pasted：已貼上；polished：框裡的草稿換成整理後的字了；
 //   command：語音指令（text 是目標，detail 是做到哪一步，見 stepText）；done：指令完成；failed：指令沒完成（detail 是原因）；
 //   nofield：自己找也找不到可以寫的地方，這段沒寫（detail 是 App 給的補充，例如 Mac 的「複製上一句」）；error：出錯（text 是原因）；hide：收起來。
 // tone：blue 聽著／整理中、green 已貼上／完成、orange 沒貼上／沒完成、red 出錯（Mac 畫成左邊的色條）。
@@ -13,7 +13,7 @@
 // lang：zh（台灣正體）、en、ja；認不得的用 en。
 
 // 指令完成只要看一眼就收（擋在畫面上很礙事）；沒完成、出錯要看得清楚原因，停久一點
-export const BUBBLE_HOLD_MS = { pasted: 1400, done: 700, ignored: 2500, nofield: 3000, noplace: 3500, failed: 3500, error: 4000 };
+export const BUBBLE_HOLD_MS = { pasted: 1400, polished: 1400, done: 700, ignored: 2500, nofield: 3000, noplace: 3500, failed: 3500, error: 4000 };
 export const BUBBLE_MAX_CHARS = 84; // 內文最多三行：一行約 30 個中文字，只留最後這麼多字，最新的字才一定看得到
 
 const TEXT = {
@@ -24,6 +24,7 @@ const TEXT = {
   ignored: ['別人在講話，這句不轉寫', 'Someone else is talking; not transcribed', 'ほかの人の声なので文字にしません'],
   working: ['整理中', 'Cleaning up', '整理中'],
   pasted: ['已貼上', 'Pasted', '貼り付けました'],
+  polished: ['已整理', 'Cleaned up', '整理しました'],
   command: ['語音指令', 'Voice command', '音声コマンド'],
   done: ['指令完成', 'Command done', 'コマンド完了'],
   failed: ['指令沒完成', 'Command not done', 'コマンド未完了'],
@@ -80,6 +81,7 @@ export function bubbleContent(e, lang = 'zh') {
     case 'ignored': return out(t('ignored'), e.text, 'orange', { loud: true });
     case 'working': return out(t('working'), e.text, 'blue', { busy: true });
     case 'pasted': return out(t('pasted'), '', 'green', { result: true });
+    case 'polished': return out(t('polished'), '', 'green', { result: true });
     case 'command': return out(t('command'), lines(e.text, e.detail), 'blue', { busy: true });
     case 'done': return out(t('done'), e.text, 'green', { result: true });
     case 'failed': return out(t('failed'), lines(e.text, e.detail), 'orange', { loud: true });

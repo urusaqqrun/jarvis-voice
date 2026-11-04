@@ -510,6 +510,26 @@ test('整條管線：AI 整理開著時，兩句合成一段，貼 AI 整理後�
     assert.equal(pasted[0].timing.earlyTranscribe, true);
     assert.equal(pasted[0].timing.earlyPolish, true);
     assert.ok(pasted[0].latencyMs >= 1200 && pasted[0].latencyMs < 1500, `停 1.2 秒就貼，不等 segmentPauseMs：${pasted[0].latencyMs} ms`);
+    // 草稿：一句一句先進框，整理好才換；草稿比換字早
+    const types = events.filter((e) => ['draft', 'pasted'].includes(e.type));
+    assert.deepEqual(types.map((e) => [e.type, e.text]), [['draft', '嗯第一句。'], ['draft', '第二句。'], ['pasted', '第一句，第二句。']]);
+    assert.equal(pasted[0].replaced, true);
+    assert.ok(pasted[0].timing.draft < pasted[0].timing.total, '草稿比換字早');
+  } finally {
+    stt.close();
+    chat.close();
+  }
+});
+
+test('整條管線：speed.draft 關掉就照原本，整理好才寫，沒有草稿', { timeout: 30_000 }, async () => {
+  const stt = await transcribeServer();
+  const chat = await fakeJson(() => chatReply({ mode: 'insert', text: '第一句，第二句。', goal: '', app: '' }));
+  try {
+    const events = await runListener(mkdtempSync(join(tmpdir(), 'voice-dictation-pipe-')), {
+      engine: 'openai', openai: { apiKey: 'sk-test' }, ai: { enabled: true, provider: 'openai', segmentPauseMs: 1500 }, speed: { hedge: 1, draft: false },
+    }, { VOICE_DICTATION_OPENAI_HTTP_URL: `${stt.url}/v1/audio/transcriptions`, VOICE_DICTATION_OPENAI_CHAT_URL: `${chat.url}/chat` });
+    assert.deepEqual(events.filter((e) => e.type === 'draft'), []);
+    assert.deepEqual(events.filter((e) => e.type === 'pasted').map((e) => e.text), ['第一句，第二句。']);
   } finally {
     stt.close();
     chat.close();

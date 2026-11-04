@@ -15,13 +15,15 @@
 //   - 字一回來就開始 AI 整理（游標不在輸入框時同時挑好要寫的框）；整理好時已經停了 1.2 秒就直接貼，
 //     又開口就作廢、等整段講完一起整理。
 //   - 轉寫、AI 整理每次同時送兩份，誰先回用誰。
-//   - 游標旁的小框（app/ui.js）：講話中即時顯示聽到的字（本機 SenseVoice 預覽）、整理中、已貼上、指令、出錯。
+//   - 草稿（speed.draft，規則在核心 core/draft.mjs）：字一回來就先把原稿貼進游標所在的輸入框，AI 整理好再把那段換掉；想送就直接送，不用等。
+//     已經送出、自己改過、游標移走、換了 app 就不換。游標不在輸入框、選取了字、開頭講「指令」時不寫草稿，照原本整理好才寫。
+//   - 游標旁的小框（app/ui.js）：講話中即時顯示聽到的字（本機 SenseVoice 預覽）、整理中、已貼上、已整理、指令、出錯。
 //   每次貼上 log 記一行「速度：講完到貼上 X 秒（字回來、整理好、貼上各花多少）」（只記 log，小框不顯示秒數）。
 //
 // 轉寫引擎看設定檔（bin/config.mjs）：local 本機 SenseVoice、openai 自己的 key（預設 gpt-transcribe 一般轉寫，
 // 也可以選 gpt-live-transcribe 即時）、cubelv（用 CubeLV 登入，扣點數，bin/cubelv.mjs）、parallelsandbox。設定檔改了會自動換。
 // 狀態寫在 status.json 給狀態列讀；有 paused 檔就暫停；有 revert-request 檔就把上一段換回原稿。
-// stdout 每行一個 JSON（state、settings、hud、bubble、pasted、skipped）。
+// stdout 每行一個 JSON（state、settings、hud、bubble、draft、pasted、kept、skipped）。
 // 選項：--app 由選單列小程式帶起（log 寫進 listen.log，小程式不在了就結束）。
 // 測試選項：--file <音檔> 用音檔代替麥克風、讀完收尾結束；--dry-paste 只印不貼；--always 不看前景 app；
 // --pid <pid> 配 --file：只寫進這個 app（端到端測試的測試視窗），讀它的上下文、它到最前面才貼，不會貼到別的 app。
@@ -49,6 +51,7 @@ import { finishText, isSpeech, withSpacing } from './text.mjs';
 // 一段話講完之後怎麼處理、幾句合成一段、小框的階段：都在核心（CubeLV、平行沙盒同一份），這裡只接 Mac 的接頭
 import { judgeInField, judgeUtterance, pickTarget, planOutput } from '../core/flow.mjs';
 import { createSegmenter, heardText, speechBubble } from '../core/segment.mjs';
+import { createDraftWriter } from '../core/draft.mjs';
 import { bubbleContent, stepText } from '../core/bubble.mjs';
 import { runAgent } from '../core/agent.mjs';
 
@@ -182,6 +185,7 @@ function announceSettings() {
     type: 'settings',
     engine: config.engine,
     ai: { enabled: config.ai.enabled, provider, ready: aiReady() },
+    draft: !!config.speed.draft,
     autoFocus: config.autoFocus,
     commands: config.commands,
     decider: deciderName,
@@ -221,11 +225,8 @@ function startEngine() {
         return;
       }
       log(`轉寫結果：${text}`);
-      if (aiReady()) {
-        segmenter.add(text, heard);
-        showHeard();
-        segmenter.check(); // 字一回來就看能不能提早整理，不等下一輪
-      } else enqueueOutput({ kind: 'text', text, heard });
+      if (aiReady()) void addSentence(text, heard).catch((err) => log(`這句沒併進這段：${err?.stack || err}`));
+      else enqueueOutput({ kind: 'text', text, heard });
     },
   };
   if (config.engine === 'local') engine = createLocalEngine({ ...config.local, ...callbacks });
@@ -521,9 +522,11 @@ function finishedPreview(turnNo) {
 
 // 小框顯示目前聽到的：寫什麼由核心 speechBubble 決定（CubeLV 同一個）。Mac 不開 confirmedOnly：一開口就跟著出字，
 // 講完比過聲紋才標「你說的」，別人講的說「別人在講話」。ignored：剛切完的這句聲紋不像你時，本機預覽聽到的字
+// 這段有草稿：轉好的字已經在框裡，小框只寫還沒進框的（還在講、還在轉的那幾句），整理中也不再把字寫一次
 function showHeard(ignored) {
   if (state !== 'listening') return;
-  const parts = segmenter.parts();
+  const drafted = !!drafts.current();
+  const parts = drafted ? [] : segmenter.parts();
   const shown = speechBubble({
     heard: heardText(parts),
     live: heardText(parts, [...previews.values()]),
@@ -533,7 +536,7 @@ function showHeard(ignored) {
     speaker: voiceprint?.enrolled() ? lastSpeaker : '',
     ignored,
   });
-  if (shown) bubble(shown.state, { text: shown.text, speaker: shown.speaker });
+  if (shown) bubble(shown.state, { text: shown.state === 'working' && drafted ? '' : shown.text, speaker: shown.speaker });
   else if (!outputQueue.length && !outputBusy) bubble('hide');
 }
 
@@ -680,17 +683,32 @@ const segmenter = createSegmenter({
   pauseMs: () => config.ai.segmentPauseMs,
   pasteAfterMs: () => config.speed.pasteAfterMs,
   maxChars: MAX_SEGMENT_CHARS,
-  state: () => ({ speaking: detector.speaking, starting: detector.starting, busy: !!engine?.busy() || pendingBytes > 0, lastVoiceAt }),
-  prepare: (raw, signal) => frontNow().then((front) => prepare(raw, front, signal)),
-  onWorking: (raw) => bubble('working', { text: raw }),
-  onSegment: ({ raw, heard, prepared, earlyPolish }) => enqueueOutput({ kind: 'segment', raw, heard, prepared, earlyPolish }),
+  state: () => ({ speaking: detector.speaking, starting: detector.starting, busy: !!engine?.busy() || pendingBytes > 0 || drafts.busy(), lastVoiceAt }),
+  prepare: (raw, signal) => {
+    const draft = drafts.current();
+    return frontNow().then((front) => prepare(raw, front, signal, draft));
+  },
+  onWorking: (raw) => bubble('working', { text: drafts.current() ? '' : raw }),
+  onSegment: ({ raw, heard, prepared, earlyPolish }) => enqueueOutput({ kind: 'segment', raw, heard, prepared, earlyPolish, draft: drafts.close() }),
   log,
 });
+
+// 轉好一句：先寫草稿（speed.draft，規則在核心 core/draft.mjs）再併進這一段。
+// 這段前面的草稿已經不再換（送出了、自己改了、游標移走了）：那些字不算這段，從這句重新開始
+async function addSentence(text, heard) {
+  if (config.speed.draft) {
+    const { restart } = await drafts.add(text);
+    if (restart) segmenter.clear();
+  }
+  segmenter.add(text, heard);
+  showHeard();
+  segmenter.check(); // 字一回來就看能不能提早整理，不等下一輪
+}
 
 // 辨識中（選單列的循環箭頭在轉）：有句子在轉寫、一段還在等整理、或整理好還沒寫進去
 let working = false;
 function updateWorking() {
-  const now = !!(engine?.busy() || segmenter.has() || outputQueue.length || outputBusy);
+  const now = !!(engine?.busy() || drafts.busy() || segmenter.has() || outputQueue.length || outputBusy);
   if (now === working) return;
   working = now;
   hudWrite(now ? 'working' : 'idle');
@@ -704,6 +722,32 @@ let outputBusy = false;
 let askedAccessibility = false;
 let lastInserted = null; // { pid, text：實際貼上的字, raw：原稿, ai：是不是 AI 整理過 }
 const rememberedTargets = new Map(); // `${pid}:${視窗標題}` → 上次寫進去的輸入框
+// 草稿：字先進輸入框，整理好再換掉（規則在核心 core/draft.mjs），這裡接 AX 小幫手
+const drafts = createDraftWriter({
+  commands: () => commandsOn(),
+  log,
+  write: async (text, expect) => {
+    if (dryPaste) {
+      emit({ type: 'draft', text, dry: true });
+      return { ok: true, continued: true, before: '', where: { pid: 0, handle: 0 } };
+    }
+    const front = await frontNow();
+    if (!front.pid || (!always && !allowed(front.bundle))) return { ok: false };
+    const written = await axCall('draft', { pid: front.pid, text, expect, chars: config.ai.contextChars }, 6000);
+    if (written?.result !== 'ok') {
+      log(`這句不寫草稿，整理好才寫：${written?.result ?? '小幫手沒回'}`);
+      return { ok: false };
+    }
+    log(`草稿：${text}${written.continued ? '' : '（前面的草稿已經送出或改過，不再換）'}`);
+    hudWrite('pasted');
+    emit({ type: 'draft', text });
+    return { ok: true, continued: written.continued, before: written.before, where: { pid: front.pid, handle: written.handle } };
+  },
+  replace: async (old, text, draft) => {
+    if (dryPaste) return 'ok';
+    return (await axCall('replace', { pid: draft.where.pid, old, text }, 6000))?.result ?? 'no-reply';
+  },
+});
 const vocab = createVocabAuto({
   log,
   settings: () => ({ ...config.ai.autoVocabulary, vocabularyFile: config.openai.vocabularyFile, ai: aiReady() ? aiSettings() : null }),
@@ -821,9 +865,11 @@ function warmUp() {
 }
 
 // 整理前的準備（可以提早做，不貼、不動畫面）：上下文（開口時就先讀了）、AI 整理，游標不在輸入框時同時挑好要寫的框。
-// signal：提早整理作廢時取消 AI 請求
-async function prepare(raw, front, signal) {
-  const ctx = await contextFor(front);
+// signal：提早整理作廢時取消 AI 請求。draft：這段已經先寫進框的草稿：游標一定在框裡，游標前的字用寫草稿之前記下的，
+// 不然 AI 會以為草稿本來就在框裡，把要寫的字省掉
+async function prepare(raw, front, signal, draft = null) {
+  const read = await contextFor(front);
+  const ctx = draft ? { ...read, field: { ...read?.field, known: true, editable: true, before: draft.before, selected: '' } } : read;
   const inField = !ctx?.field.known || ctx.field.editable;
   const out = { front, ctx, inField, result: null, pick: null, aiDoneAt: 0 };
   // 不在輸入框、也沒開自動找或指令：不用送 AI
@@ -850,11 +896,13 @@ function speedNote(item, prep, pasteStartAt, pastedAt) {
     aiMs: prep?.result?.ms ?? null,
     earlyPolish: !!item.earlyPolish,
     paste: pastedAt - pasteStartAt,
+    ...(item.draft ? { draft: item.draft.writtenAt - end } : {}),
   };
   const bits = [`字回來 ${s(parts.heard)}${parts.earlyTranscribe ? '（停 0.4 秒就先送）' : ''}`];
   if (parts.aiDone !== null) bits.push(`整理好 ${s(parts.aiDone)}（AI ${s(parts.aiMs ?? 0)}${parts.earlyPolish ? '，字一回來就整理' : ''}）`);
-  bits.push(`貼上 ${s(parts.paste)}`);
-  return { parts, line: `速度：講完到貼上 ${s(parts.total)} 秒（${bits.join('、')}）` };
+  bits.push(`${item.draft ? '換字' : '貼上'} ${s(parts.paste)}`);
+  const head = item.draft ? `講完到草稿 ${s(parts.draft)} 秒，到換成整理後的字 ${s(parts.total)} 秒` : `講完到貼上 ${s(parts.total)} 秒`;
+  return { parts, line: `速度：${head}（${bits.join('、')}）` };
 }
 
 // AI 整理＋是不是指令：規則在核心（core/flow.mjs 的 judgeUtterance，CubeLV 同一份），這裡接 Mac 的 AI、Jev 與輔助使用。
@@ -965,6 +1013,109 @@ function skipNoField(raw, role) {
   return '';
 }
 
+// 整理完不是要寫字：指令、刪掉剛剛那段、換回原文、只有語氣詞
+async function actOnPlan(plan, raw, front, ctx) {
+  if (plan.kind === 'command') return runVoiceCommand(plan.result, raw, front, ctx);
+  if (plan.kind === 'delete_last') await replaceLast(front, '', '刪掉剛剛那段');
+  else if (plan.kind === 'revert_last') {
+    if (lastInserted?.ai) await replaceLast(front, withSpacing(lastInserted.raw), '換回原文');
+  } else if (plan.kind === 'filler') {
+    writeLast(raw);
+    bubble('hide');
+    log('整段只有語氣詞，不寫：', raw);
+  }
+  return '';
+}
+
+// 字進去了（貼上，或草稿換好）：記下來給「換回原文」、歷史、自動學詞
+function noteWritten({ item, prep, ctx, front, text, raw, result, handle, startAt, doneAt, message, shown, extra = {} }) {
+  ctxCache = null; // 游標前後的字變了，下次開口重讀
+  const speed = speedNote(item, prep, startAt, doneAt);
+  log(message);
+  if (speed) log(speed.line);
+  bubble(shown);
+  emit({ type: 'pasted', text, raw, mode: result?.mode ?? 'insert', ...extra, ...(speed ? { latencyMs: speed.parts.total, timing: speed.parts } : {}) });
+  lastInserted = { pid: front.pid, text, raw, ai: !!result && result.text !== raw };
+  if (ctx?.field.editable) rememberedTargets.set(`${front.pid}:${ctx.window}`, { role: ctx.field.role, label: ctx.field.label });
+  if (config.ai.history) {
+    appendHistory({
+      app: ctx?.app ?? '', bundle: front.bundle, raw, text: result ? result.text : raw, mode: result?.mode ?? 'insert',
+      ai: result ? `${config.ai.provider}/${result.model}` : '', ms: result?.ms ?? 0,
+      ...(speed ? { latencyMs: speed.parts.total } : {}), ...(speed?.parts.draft !== undefined ? { draftMs: speed.parts.draft } : {}),
+    });
+  }
+  // 詞彙表自動更新：記下用到的自動詞，不太頻繁地從畫面挑新的專有名詞
+  if (aiReady()) void vocab.afterSegment({ screen: ctx?.screen ?? '', text: result ? result.text : raw });
+  // AI 整理後貼的，盯一下使用者有沒有自己改專有名詞
+  if (result?.mode === 'insert' && handle && ctx?.field && !ctx.field.selected) {
+    learner.watch({ handle, inserted: text, before: ctx.field.before ?? '', after: ctx.field.after ?? '' });
+  }
+}
+
+// 這段已經先寫了草稿：AI 整理好把它換掉。已經送出、自己改過、游標移走、換了 app 就不動（核心 core/draft.mjs）
+async function deliverDraft(item, front) {
+  const { raw, draft } = item;
+  if (draft.gone || (!dryPaste && front.pid !== draft.where.pid)) {
+    drafts.forget(draft);
+    writeLast(raw);
+    log(`草稿已經送出、改過或換了 app，不換：${draft.text}`);
+    bubble('hide');
+    return '';
+  }
+  if (!item.prepared) {
+    bubble('working');
+    item.prepared = prepare(raw, front, undefined, draft);
+  }
+  const prep = await item.prepared;
+  const ctx = prep?.ctx ?? null;
+  const plan = planOutput({ raw, result: prep?.result ?? null });
+  if (plan.failed) {
+    log(`AI 整理失敗，留原稿：${plan.failed}`);
+    lastError = { message: plan.failed, at: Date.now() };
+  }
+  if (plan.kind !== 'write') {
+    // 不是要打的字：先把草稿拿掉。拿不掉＝已經送出或改過，那就是要打的字，不照指令做
+    const removed = await drafts.settle(draft, '');
+    if (removed === 'ok') return actOnPlan(plan, raw, front, ctx);
+    writeLast(raw);
+    log(`草稿已經送出或改過（${removed}），不照「${plan.kind}」做：${raw}`);
+    bubble('hide');
+    return '';
+  }
+  const result = plan.result ?? null;
+  // 沒有整理的結果（失敗、Jev 說不是指令）：草稿就是原稿，留著
+  const text = result ? withSpacing(plan.text) : draft.text;
+  writeLast(plan.text);
+  const startAt = Date.now();
+  const outcome = await drafts.settle(draft, text);
+  const doneAt = Date.now();
+  if (outcome !== 'ok' && outcome !== 'same') {
+    ctxCache = null;
+    log(`草稿已經送出或改過（${outcome}），不換：${text}`);
+    bubble('hide');
+    emit({ type: 'kept', text: draft.text, raw, polished: text, reason: outcome });
+    lastInserted = { pid: draft.where.pid, text: draft.text, raw, ai: false };
+    if (config.ai.history) {
+      appendHistory({ app: ctx?.app ?? '', bundle: front.bundle, raw, text: draft.text, polished: plan.text, kept: true, mode: result?.mode ?? 'insert', ai: result ? `${config.ai.provider}/${result.model}` : '', ms: result?.ms ?? 0 });
+    }
+    return '';
+  }
+  const replaced = outcome === 'ok';
+  if (dryPaste) {
+    const speed = speedNote(item, prep, startAt, doneAt);
+    if (speed) log(speed.line);
+    emit({ type: 'pasted', text, raw, mode: plan.mode, dry: true, replaced, ...(speed ? { latencyMs: speed.parts.total, timing: speed.parts } : {}) });
+    return '';
+  }
+  noteWritten({
+    item, prep, ctx, front, text, raw, result, handle: draft.where.handle, startAt, doneAt,
+    message: replaced ? `已換成整理後的字：${text}` : `整理後字一樣，不用換：${text}`,
+    shown: replaced ? 'polished' : 'hide',
+    extra: { replaced },
+  });
+  return '';
+}
+
 // 回傳 'retry' 表示現在寫不進去（沒權限、前景換了），放回佇列等一下
 async function deliver(item, front) {
   if (item.kind === 'revert') {
@@ -972,6 +1123,7 @@ async function deliver(item, front) {
     else log('換回原文：上一段沒有經過 AI 整理');
     return '';
   }
+  if (item.draft) return deliverDraft(item, front);
   const raw = item.kind === 'segment' ? item.raw : item.text;
   // 一段：提早整理好的（或上次整理好、只是當時寫不進去的）直接用，不再問一次 AI
   if (item.kind === 'segment' && !item.prepared) {
@@ -996,18 +1148,7 @@ async function deliver(item, front) {
     log(`AI 整理失敗，改貼原稿：${plan.failed}`);
     lastError = { message: plan.failed, at: Date.now() };
   }
-  if (plan.kind === 'command') return runVoiceCommand(plan.result, raw, front, ctx);
-  if (plan.kind === 'delete_last') { await replaceLast(front, '', '刪掉剛剛那段'); return ''; }
-  if (plan.kind === 'revert_last') {
-    if (lastInserted?.ai) await replaceLast(front, withSpacing(lastInserted.raw), '換回原文');
-    return '';
-  }
-  if (plan.kind === 'filler') {
-    writeLast(raw);
-    bubble('hide');
-    log('整段只有語氣詞，不寫：', raw);
-    return '';
-  }
+  if (plan.kind !== 'write') return actOnPlan(plan, raw, front, ctx);
   const result = plan.result ?? null;
   if (!inField) {
     const chosen = config.autoFocus ? await (pick ?? pickField(front.pid, plan.text, ctx)) : null;
@@ -1060,26 +1201,7 @@ async function deliver(item, front) {
     return '';
   }
   hudWrite('pasted');
-  ctxCache = null; // 游標前後的字變了，下次開口重讀
-  const speed = speedNote(item, prep, pasteStartAt, pastedAt);
-  log(`已貼上：${text}`);
-  if (speed) log(speed.line);
-  bubble('pasted');
-  emit({ type: 'pasted', text, raw, mode: result?.mode ?? 'insert', ...(speed ? { latencyMs: speed.parts.total, timing: speed.parts } : {}) });
-  lastInserted = { pid: front.pid, text, raw, ai: !!result && result.text !== raw };
-  if (ctx?.field.editable) rememberedTargets.set(`${front.pid}:${ctx.window}`, { role: ctx.field.role, label: ctx.field.label });
-  if (config.ai.history) {
-    appendHistory({
-      app: ctx?.app ?? '', bundle: front.bundle, raw, text: result ? result.text : raw, mode: result?.mode ?? 'insert',
-      ai: result ? `${config.ai.provider}/${result.model}` : '', ms: result?.ms ?? 0, ...(speed ? { latencyMs: speed.parts.total } : {}),
-    });
-  }
-  // 詞彙表自動更新：記下用到的自動詞，不太頻繁地從畫面挑新的專有名詞
-  if (aiReady()) void vocab.afterSegment({ screen: ctx?.screen ?? '', text: result ? result.text : raw });
-  // AI 整理後貼的，盯一下使用者有沒有自己改專有名詞
-  if (result?.mode === 'insert' && pasted.handle && ctx?.field && !ctx.field.selected) {
-    learner.watch({ handle: pasted.handle, inserted: text, before: ctx.field.before ?? '', after: ctx.field.after ?? '' });
-  }
+  noteWritten({ item, prep, ctx, front, text, raw, result, handle: pasted.handle, startAt: pasteStartAt, doneAt: pastedAt, message: `已貼上：${text}`, shown: 'pasted' });
   return '';
 }
 
@@ -1091,6 +1213,7 @@ async function drainOutput() {
       const item = outputQueue[0];
       if (Date.now() - item.at > HOLD_MS) {
         outputQueue.shift();
+        if (item.draft) drafts.forget(item.draft);
         log('一分鐘內都寫不進去（前景是不收音的 app，或沒有輔助使用權限），丟掉一段：', item.text ?? item.raw ?? '');
         continue;
       }
@@ -1196,7 +1319,7 @@ async function main() {
     finishTurn();
     // 等所有句子轉完、整理完、貼完
     const until = Date.now() + 30_000;
-    while (Date.now() < until && (engine.busy() || segmenter.has() || outputQueue.length || outputBusy)) {
+    while (Date.now() < until && (engine.busy() || drafts.busy() || segmenter.has() || outputQueue.length || outputBusy)) {
       engine.flush();
       if (!engine.busy()) segmenter.force();
       void drainOutput(); // 寫不進去（不在最前面）的那段，等一下再試

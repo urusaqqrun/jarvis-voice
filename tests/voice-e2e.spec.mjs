@@ -13,7 +13,7 @@ import { join } from 'node:path';
 import { after, test } from 'node:test';
 import { createAx } from '../bin/ax.mjs';
 import { findFfmpeg } from '../bin/common.mjs';
-import { bringToFront, restoreFront } from './fixtures/front.mjs';
+import { holdFront, restoreFront } from './fixtures/front.mjs';
 
 const ROOT = join(import.meta.dirname, '..');
 const enabled = process.platform === 'darwin' && !!process.env.VOICE_DICTATION_E2E;
@@ -65,21 +65,21 @@ async function dictate(wav, { blur = false } = {}) {
     ...(blur ? ['--blur-on', blurFile] : [])], { stdio: 'ignore' });
   try {
     assert.ok(await waitEditable(win.pid), '測試視窗的文字框要能寫');
-    assert.ok(await bringToFront(win.pid), '測試視窗要到最前面');
-    // 每 100 ms 看一次最後一次鍵盤滑鼠動作是什麼時候；貼上時程式自己按的 Cmd+V 也算一次，要扣掉
+    assert.ok(await holdFront(win.pid), '測試視窗要到最前面');
+    // 每 100 ms 看一次最後一次鍵盤滑鼠動作是什麼時候；寫草稿、貼上時程式自己按的 Cmd+V 也算一次，要扣掉
     const started = Date.now();
     const inputs = [];
     const watch = setInterval(() => {
       const at = Date.now() - idleMs();
       if (at > started && !inputs.some((x) => Math.abs(x - at) < 150)) inputs.push(at);
     }, 100);
-    let pastedAt = 0;
+    const ownAt = [];
     const child = spawn(process.execPath, [join(ROOT, 'bin', 'listen.mjs'), '--file', wav, '--pid', String(win.pid)], {
       env: { ...process.env, VOICE_DICTATION_STATE_DIR: stateDir, VOICE_DICTATION_CONFIG: process.env.VOICE_DICTATION_CONFIG || join(homedir(), '.voice-dictation', 'config.json') },
     });
     let out = '';
     let log = '';
-    child.stdout.on('data', (d) => { out += d; if (!pastedAt && String(d).includes('"pasted"')) pastedAt = Date.now(); });
+    child.stdout.on('data', (d) => { out += d; if (/"(draft|pasted)"/.test(String(d))) ownAt.push(Date.now()); });
     child.stderr.on('data', (d) => {
       log += d;
       if (blur && /切出一句/.test(log) && !existsSync(blurFile)) writeFileSync(blurFile, '');
@@ -94,7 +94,7 @@ async function dictate(wav, { blur = false } = {}) {
     }
     clearInterval(watch);
     const events = out.split('\n').filter(Boolean).map((l) => JSON.parse(l));
-    const touched = inputs.some((at) => !pastedAt || at < pastedAt - 1500 || at > pastedAt + 200);
+    const touched = inputs.some((at) => !ownAt.some((t) => at >= t - 1500 && at <= t + 200));
     return { events, log, value, touched };
   } finally {
     win.kill();
@@ -140,6 +140,10 @@ test('真的講話：念出來的句子一路轉寫、整理，貼進測試視�
       if (pastedEvent?.latencyMs) latencies.push(pastedEvent.latencyMs);
       t.diagnostic(`${c.name}：念「${c.say}」→ 轉寫「${raw}」→ 視窗裡「${value}」${speed ? `；${speed}` : ''}`);
       const bad = [...c.expect.filter((re) => !re.test(value)).map((re) => `少了 ${re}`), ...(c.reject ?? []).filter((re) => re.test(value)).map((re) => `不該有 ${re}`)];
+      // 游標在框裡（blur 例外：切完句才離開）：字先進框，整理好才換；換了字，視窗裡就是換好的
+      const draftAt = events.findIndex((e) => e.type === 'draft');
+      if (!c.blur && (draftAt < 0 || draftAt > events.indexOf(pastedEvent))) bad.push('草稿要比換字早');
+      if (c.blur && draftAt >= 0) bad.push('游標不在框裡不該寫草稿');
       if (bad.length) failures.push(`${c.name}（視窗裡「${value}」）：${bad.join('、')}\n${log.trim().split('\n').slice(-8).join('\n')}`);
     }
   } finally {

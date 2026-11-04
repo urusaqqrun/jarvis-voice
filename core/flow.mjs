@@ -12,6 +12,9 @@ import { rankTargets } from './targeter.mjs';
 export const NOT_IN_FIELD_SURE = 0.95;
 const FIELD_ROLES = ['AXTextField', 'AXTextArea', 'AXComboBox', 'AXSearchField'];
 
+// 開頭講「指令」：不管游標在哪都是要操作
+export const isExplicitCommand = (raw) => /^\s*(指令|command)/i.test(raw);
+
 // 游標在輸入框時問決策器（Jev）：看畫面上有什麼，判斷這句是不是要操作畫面。
 // field：游標所在的框 { label, role }；回傳 inFieldVerdict 的結果，加上畫面是怎麼讀的（source：ocr、no-permission…）
 export async function judgeInField({ raw, screen, decider, field = {}, context = {} }) {
@@ -43,7 +46,7 @@ export async function judgeUtterance({ raw, inField, edit, judge = null, intent 
     const jevNote = verdict ? `；Jev：是指令的機率 ${verdict.command.toFixed(2)}${verdict.named ? `，講到「${verdict.named.label}」` : ''}` : '';
     log(`AI 整理（${result.model ?? 'AI'}，${result.ms} ms，${result.mode}）：${result.mode === 'command' ? result.goal : result.text || '（無）'}${jevNote}`);
     if (result.keptRaw) log('AI 把不只語氣詞的話整理成空的：照原稿寫');
-    if (result.mode === 'command' && verdict && !verdict.isCommand && !/^\s*(指令|command)/i.test(raw) && !result.message?.trim()) {
+    if (result.mode === 'command' && verdict && !verdict.isCommand && !isExplicitCommand(raw) && !result.message?.trim()) {
       log('AI 說是指令、Jev 說不是：當成要打的字，貼原稿');
       return null;
     }

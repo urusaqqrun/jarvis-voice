@@ -98,7 +98,9 @@ function label() {
   const name = ENGINE_NAMES[view.engine] ? t(`（${ENGINE_NAMES[view.engine]}）`, ` (${ENGINE_NAMES[view.engine]})`) : '';
   switch (view.state) {
     case 'listening': return settings.ai.enabled && settings.ai.ready
-      ? t(`聽著${name}：講完一段，${AI_NAMES[settings.ai.provider]} 整理後寫進輸入框`, `Listening${name}: each passage is cleaned up by ${AI_NAMES[settings.ai.provider]} and typed in`)
+      ? (settings.draft
+        ? t(`聽著${name}：字先進輸入框，${AI_NAMES[settings.ai.provider]} 整理好再換掉`, `Listening${name}: text goes in right away, then ${AI_NAMES[settings.ai.provider]} cleans it up`)
+        : t(`聽著${name}：講完一段，${AI_NAMES[settings.ai.provider]} 整理後寫進輸入框`, `Listening${name}: each passage is cleaned up by ${AI_NAMES[settings.ai.provider]} and typed in`))
       : t(`聽著${name}：講完一句就貼進游標所在的輸入框`, `Listening${name}: each sentence is pasted where your cursor is`);
     case 'standby': return t(`待命${name}：最前面的 app 不收音`, `Standing by${name}: the frontmost app is excluded`);
     case 'paused': return t(`已暫停${name}`, `Paused${name}`);

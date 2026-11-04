@@ -166,6 +166,8 @@ test('小框：每個階段的標題、內文、顏色、停多久；三種語�
   assert.equal(core.bubbleContent({ state: 'working', text: 'x' }, 'en').busy, true);
   assert.equal(core.bubbleContent({ state: 'pasted' }, 'ja').title, '貼り付けました');
   assert.equal(core.bubbleContent({ state: 'pasted' }).holdMs, 1400);
+  assert.deepEqual(core.bubbleContent({ state: 'polished' }, 'zh'), { title: '已整理', body: '', tone: 'green', loud: false, busy: false, result: true, holdMs: 1400 });
+  assert.equal(core.bubbleContent({ state: 'working' }, 'zh').body, ''); // 字已經先進框了，整理中不再寫一次
   assert.equal(core.bubbleContent({ state: 'done', text: '打開市集' }).holdMs, 700);
   assert.equal(core.bubbleContent({ state: 'command', text: '打開行事曆', detail: '第 1 步：點 按鈕「行事曆」' }, 'zh').body, '打開行事曆\n第 1 步：點 按鈕「行事曆」');
   assert.equal(core.bubbleContent({ state: 'failed', text: 'g', detail: '找不到' }).loud, true);
