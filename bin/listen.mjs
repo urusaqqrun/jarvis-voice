@@ -733,7 +733,8 @@ const segmenter = createSegmenter({
 async function addSentence(text, heard, turn) {
   if (config.speed.draft) {
     const { written, restart, dropped, stale } = await drafts.add(text, turn);
-    if (written) log(`這句進框：${text}`);
+    if (written) log(`這句進框：${text}${liveWrites ? `（講話中先打了 ${liveWrites} 次）` : ''}`);
+    liveWrites = 0;
     if (restart) segmenter.clear();
     if (stale) segmenter.add(stale, heard);
     if (dropped) {
@@ -767,6 +768,7 @@ let askedAccessibility = false;
 let lastInserted = null; // { pid, text：實際貼上的字, raw：原稿, ai：是不是 AI 整理過 }
 const rememberedTargets = new Map(); // `${pid}:${視窗標題}` → 上次寫進去的輸入框
 // 字先進輸入框：邊講邊打、準的字換掉預覽、整理好再換掉（規則在核心 core/draft.mjs），這裡接 AX 小幫手
+let liveWrites = 0; // 這句講話中打進框幾次（記 log 用）
 const drafts = createDraftWriter({
   commands: () => commandsOn(),
   log,
@@ -790,7 +792,10 @@ const drafts = createDraftWriter({
     if (why === 'sentence') {
       hudWrite('pasted');
       emit({ type: 'draft', text });
-    } else if (why === 'preview') emit({ type: 'live', text });
+    } else if (why === 'preview') {
+      liveWrites += 1;
+      emit({ type: 'live', text });
+    }
     return { ok: true, before: written.before ?? '', where: { pid, handle: written.handle } };
   },
 });
