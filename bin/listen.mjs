@@ -787,7 +787,7 @@ const drafts = createDraftWriter({
     if (written?.result !== 'ok') {
       if (why === 'sentence') log(`這句沒有先寫進框：${written?.result ?? '小幫手沒回'}`);
       if (why === 'preview' && !expect) fieldEditable = false; // 游標其實不在框裡（或寫不進去）：小框改寫聽到的字
-      return { ok: false, reason: written?.result ?? 'no-reply', before: written?.before ?? '' };
+      return { ok: false, reason: written?.result ?? 'no-reply', before: written?.before ?? '', idle: written?.idle };
     }
     if (why === 'sentence') {
       hudWrite('pasted');

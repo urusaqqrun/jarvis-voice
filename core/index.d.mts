@@ -380,7 +380,7 @@ export interface DraftRewrite<W = unknown> {
   where: W | null;
   why: 'preview' | 'sentence' | 'settle' | 'drop';
 }
-export type DraftRewriteResult<W = unknown> = { ok: true; before?: string; where?: W } | { ok: false; reason: string; before?: string };
+export type DraftRewriteResult<W = unknown> = { ok: true; before?: string; where?: W } | { ok: false; reason: string; before?: string; idle?: number };
 export const LIVE_PAUSE_MS: number;
 export interface DraftWriter<W = unknown> {
   /** 這句講到一半認到的字，框裡跟著改 */

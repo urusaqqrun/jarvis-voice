@@ -11,11 +11,12 @@ function fakeField(start = '') {
     value: start,
     ops: [],
     down: false,
+    idle: 60, // 使用者多久沒碰鍵盤滑鼠（秒）
     send() { field.value = ''; },
     async rewrite({ expect, same, text, why }) {
       field.ops.push({ expect, same, text, why });
       if (field.down) return { ok: false, reason: 'no-field' };
-      if (!field.value.endsWith(expect)) return { ok: false, reason: 'mismatch', before: field.value };
+      if (!field.value.endsWith(expect)) return { ok: false, reason: 'mismatch', before: field.value, idle: field.idle };
       const before = field.value;
       field.value = field.value.slice(0, field.value.length - expect.length + same) + text;
       return { ok: true, before, where: { pid: 1 } };
@@ -387,6 +388,45 @@ test('邊講邊打：自己接著打字或換行：我們的字還在就不再�
   field.value += '\n';
   assert.deepEqual(await drafts.add('這句話。', 1), { written: false, restart: false, dropped: true });
   assert.equal(field.value, '這句話\n');
+});
+
+test('邊講邊打：看到字認錯自己動手改：框裡是他改的字，準的字不再寫（不會變成重複的字），也不會關掉邊講邊打', async () => {
+  const notes = [];
+  const field = fakeField();
+  const drafts = writer(field, { log: (m) => notes.push(m) });
+  drafts.preview(1, '然後這個按鈕切邊呢');
+  await idle(drafts);
+  field.value = '然後這個按鈕w'; // 刪掉認錯的字，自己打
+  field.idle = 0.5;
+  assert.deepEqual(await drafts.add('然後這個按鈕切邊了。', 1), { written: false, restart: false, dropped: true });
+  assert.equal(field.value, '然後這個按鈕w');
+  assert.deepEqual(notes, []);
+  drafts.preview(2, '下一句還是邊講邊打');
+  await idle(drafts);
+  assert.equal(field.value, '然後這個按鈕w下一句還是邊講邊打');
+});
+
+test('邊講邊打：沒有人碰但後面幾個字不一樣（貼上被別的程式蓋掉）：照框裡實際的字改回來，不重複', async () => {
+  const field = fakeField('前面的字');
+  const drafts = writer(field, { log: () => {} });
+  drafts.preview(1, '然後這個按鈕切邊呢');
+  await idle(drafts);
+  field.value = '前面的字然後這個按鈕w';
+  assert.deepEqual(await drafts.add('然後這個按鈕切邊了。', 1), { written: true, restart: false });
+  assert.equal(field.value, '前面的字然後這個按鈕切邊了。');
+  assert.equal(await drafts.settle(drafts.close(), '這個按鈕切邊了。'), 'ok');
+  assert.equal(field.value, '前面的字這個按鈕切邊了。');
+});
+
+test('草稿：整理好的時候自己動手改了：不換', async () => {
+  const field = fakeField();
+  const drafts = writer(field);
+  await drafts.add('然後這個按鈕切邊呢。', 1);
+  const draft = drafts.close();
+  field.value = '然後這個按鈕切邊了。';
+  field.idle = 1;
+  assert.equal(await drafts.settle(draft, '這個按鈕切邊呢。'), 'mismatch');
+  assert.equal(field.value, '然後這個按鈕切邊了。');
 });
 
 test('邊講邊打：看不出來為什麼對不上（app 改了字的樣子）：準的字照樣寫不吞字，5 分鐘內不邊講邊打', async () => {

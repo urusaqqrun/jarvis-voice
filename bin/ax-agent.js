@@ -12,7 +12,7 @@
 //                                       按完 Cmd+V 就回覆，等 app 讀剪貼簿（游標動了才算讀完，讀不到游標等 0.35 秒）、還原剪貼簿在回覆之後才做
 //   rewrite { pid, expect, same, text, chars, handle, refocus } → { result: ok | mismatch | moved | no-accessibility | no-field | secure | unreadable | has-selection | not-front, handle, before }：
 //                                       邊講邊打、草稿：游標前面要正好是 expect（我們寫的字），留下前 same 個字，後面換成 text；之後要改得掉才寫
-//                                       （讀得到游標前的字、改得了選取範圍、沒有選取）。before：寫之前游標前的字（最多 chars 個）；mismatch 時是現在游標前的字。
+//                                       （讀得到游標前的字、改得了選取範圍、沒有選取）。before：寫之前游標前的字（最多 chars 個）；mismatch 時是現在游標前的字，加上 idle：使用者多久沒碰鍵盤滑鼠（秒）。
 //                                       handle：第一次寫回的那個框（第一次寫才回 handle）：游標在別的輸入框回 moved；refocus：游標跑到按鈕這類地方就對焦回那個框
 //   replace { pid, old, text }        → { result: ok | mismatch | no-field | not-front }：游標前面正好是 old 就選起來換成 text（空字串＝刪掉）
 //   按鍵（Cmd+V、Delete）只在 pid 確實是最前面的 app 時才送，不然回 not-front
@@ -382,10 +382,27 @@ function restore(pb, saved) {
   pb.writeObjects(objects);
 }
 
+const kCGEventSourceStateHIDSystemState = 1;
+const kCGEventLeftMouseDown = 1;
+const kCGEventKeyDown = 10;
 let lastOwnKeyAt = 0;
+let lastUserKeyAt = 0;
+
+// 記下使用者最後按鍵的時間（自己按的 Cmd+V 不算）
+function noteUserKey() {
+  const at = Date.now() - $.CGEventSourceSecondsSinceLastEventType(kCGEventSourceStateHIDSystemState, kCGEventKeyDown) * 1000;
+  if (Math.abs(at - lastOwnKeyAt) > 50) lastUserKeyAt = Math.max(lastUserKeyAt, at);
+}
+
+// 使用者多久沒碰鍵盤、滑鼠（秒）
+function userIdle() {
+  noteUserKey();
+  return Math.min((Date.now() - lastUserKeyAt) / 1000, $.CGEventSourceSecondsSinceLastEventType(kCGEventSourceStateHIDSystemState, kCGEventLeftMouseDown));
+}
 
 // flags：kCGEventFlagMask 的組合（Command 0x100000、Shift 0x20000、Option 0x80000、Control 0x40000）
 function pressKey(code, flags = 0) {
+  noteUserKey();
   const source = $.CGEventSourceCreate(0); // kCGEventSourceStateCombinedSessionState
   const down = $.CGEventCreateKeyboardEvent(source, code, true);
   const up = $.CGEventCreateKeyboardEvent(source, code, false);
@@ -505,24 +522,14 @@ function until(check, seconds) {
   }
 }
 
-const kCGEventSourceStateHIDSystemState = 1;
-const kCGEventLeftMouseDown = 1;
-const kCGEventKeyDown = 10;
 const TOUCH_SETTLE = 0.3;
+const justTouched = () => userIdle() < TOUCH_SETTLE;
 
-// 使用者剛按過鍵盤、滑鼠（自己按的 Cmd+V 不算）
-function justTouched() {
-  const key = $.CGEventSourceSecondsSinceLastEventType(kCGEventSourceStateHIDSystemState, kCGEventKeyDown);
-  const mouse = $.CGEventSourceSecondsSinceLastEventType(kCGEventSourceStateHIDSystemState, kCGEventLeftMouseDown);
-  const own = (Date.now() - lastOwnKeyAt) / 1000;
-  return mouse < TOUCH_SETTLE || (key < TOUCH_SETTLE && Math.abs(key - own) > 0.05);
-}
-
-// 對不上時回現在游標前的字，node 看得出是送出了（框空了）、接著打字（我們的字還在）還是 app 改了字的樣子
+// 對不上時回現在游標前的字、使用者多久沒碰鍵盤滑鼠，node 看得出是使用者在改（送出、接著打字、手動改字）還是 app、貼上出了問題
 function mismatchAt(root, expect) {
   const now = rangeOf(root);
   const before = now && !now.length ? textBefore(root, now, Math.min(now.location, expect.length + 40)) : '';
-  return { result: 'mismatch', before };
+  return { result: 'mismatch', before, idle: userIdle() };
 }
 
 // 邊講邊打、草稿：之後改不掉（讀不到游標前的字、改不了選取範圍）、選取了字（又講話可能是要改寫，等 AI 判斷）都不寫，由 listen.mjs 照原本整理好才寫

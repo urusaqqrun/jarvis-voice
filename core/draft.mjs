@@ -6,14 +6,17 @@
 //   close()：這段講完了，交出這段的草稿（沒寫進去就是 null，照原本整理好才寫）。
 //   settle(草稿, 字)：整理好了，把草稿換成這些字（空字串＝拿掉）。
 // 只改自己寫的字：每次都先確認游標前面正好是我們寫的字。對不上——
-//   使用者自己動了（送出、清空、接著打字、換行，或游標離開了框）：這些字都不再改，框裡講到一半的那句也不再寫；
-//   看不出來（app 把字改了樣子、讀不準）：一樣不再改，但那句準的字照樣寫進去（不吞字），之後 5 分鐘不邊講邊打。
+//   使用者自己動了（送出、清空、接著打字、手動改字、換行，或游標換到別的框）：這些字都不再改，框裡講到一半的那句也不再寫；
+//     手動改字認得出來，靠使用者剛碰過鍵盤滑鼠（11/04 看到字認錯馬上自己改，整句又被寫一次變成重複的字）；
+//   沒有人碰，只有後面幾個字不一樣（貼上被別的程式蓋掉）：照框裡實際的字改回來；
+//   看不出來（app 把字改了樣子、讀不準）：不再改，但那句準的字照樣寫進去（不吞字），之後 5 分鐘不邊講邊打。
 // 接頭：
 //   rewrite({ expect, same, text, where, why }) → { ok, before, where } 或 { ok: false, reason, before }：
 //     游標前面要正好是 expect（我們寫的字），留下 expect 的前 same 個字，後面換成 text。where 是第一次寫的時候 App 回的
 //     （哪個 app、哪個框；null＝寫在最前面的 app），why 是 preview、sentence、settle、drop（給 App 記 log、決定要不要搶焦點）。
 //     before：寫之前游標前的字（第一次寫時記下來，給 AI 當上下文，不然 AI 會以為草稿本來就在框裡）；對不上時是現在游標前的字。
-//     reason：mismatch（對不上）、moved（游標在別的輸入框），或寫不進去的原因（游標不在框裡、選取了字、讀不到框…，這句照原本整理好才寫）。
+//     reason：mismatch（對不上，另外回 idle：使用者多久沒碰鍵盤滑鼠，秒）、moved（游標在別的輸入框），
+//     或寫不進去的原因（游標不在框裡、選取了字、讀不到框…，這句照原本整理好才寫）。
 //   commands()：有沒有開語音指令（開頭講「指令」的這段一定是要操作，不寫）。
 // 寫和改都排隊一次做一件：都要先確認游標前面的字，不能交錯。
 
@@ -21,6 +24,7 @@ import { isExplicitCommand } from './flow.mjs';
 import { isSpeech, onlyFiller, withSpacing } from './text.mjs';
 
 export const LIVE_PAUSE_MS = 5 * 60 * 1000;
+const HANDS_ON_SECONDS = 3; // 使用者這麼久內碰過鍵盤滑鼠：對不上就是他在改
 
 // 預覽的句尾標點先不打：講下去就要改掉，準的字回來會補上
 const livePiece = (text) => String(text ?? '').trim().replace(/[\s。．.!！?？,，、；;：:]+$/u, '');
@@ -32,6 +36,20 @@ function samePrefix(a, b) {
   while (n < max && a[n] === b[n]) n += 1;
   if (n > 0 && /[\uD800-\uDBFF]/.test(a[n - 1])) n -= 1;
   return n;
+}
+
+// 我們的字大致還在、只有後面幾個字不一樣：回傳框裡實際的那段，不像就回 null
+function drifted(before, expect) {
+  let at = -1;
+  let longest = 0;
+  for (let p = Math.max(0, before.length - expect.length - 8); p < before.length; p += 1) {
+    const n = samePrefix(before.slice(p), expect);
+    if (n > longest) {
+      longest = n;
+      at = p;
+    }
+  }
+  return longest >= 4 && longest >= expect.length * 0.6 ? before.slice(at) : null;
 }
 
 export function createDraftWriter({ rewrite, commands = () => false, log = () => {}, now = () => Date.now() }) {
@@ -63,14 +81,22 @@ export function createDraftWriter({ rewrite, commands = () => false, log = () =>
   async function apply(next, why) {
     const expect = tail();
     if (next === expect) return { ok: true };
-    const same = samePrefix(expect, next);
-    let result;
-    try {
-      result = await rewrite({ expect, same, text: next.slice(same), where: expect ? where : null, why });
-    } catch (err) {
-      result = { ok: false, reason: err?.message ?? String(err) };
+    const send = async (from) => {
+      const same = samePrefix(from, next);
+      try {
+        return (await rewrite({ expect: from, same, text: next.slice(same), where: expect ? where : null, why })) ?? { ok: false, reason: 'no-reply' };
+      } catch (err) {
+        return { ok: false, reason: err?.message ?? String(err) };
+      }
+    };
+    let result = await send(expect);
+    const handsOff = (result.idle ?? Infinity) >= HANDS_ON_SECONDS;
+    const actual = result.reason === 'mismatch' && handsOff ? drifted(result.before ?? '', expect) : null;
+    if (actual !== null) {
+      log(`框裡的字有幾個不是我們寫的、也沒有人碰：改回來（${actual.slice(-30)}）`);
+      const again = await send(actual);
+      if (again.ok) result = again;
     }
-    result ??= { ok: false, reason: 'no-reply' };
     if (result.ok && !expect) {
       base = result.before ?? '';
       where = result.where ?? null;
@@ -78,11 +104,11 @@ export function createDraftWriter({ rewrite, commands = () => false, log = () =>
     return result;
   }
 
-  // 對不上或寫不進去：框裡我們寫的字都不再改。使用者自己動了（框清空、我們的字還在但後面多了字）還是看不出來
+  // 對不上或寫不進去：框裡我們寫的字都不再改。使用者自己動了（框清空、我們的字還在但後面多了字、剛碰過鍵盤滑鼠）還是看不出來
   function letGo(result) {
     const expect = tail();
     const before = result.before ?? '';
-    const acted = result.reason !== 'mismatch' || !before || before.includes(expect.slice(-20));
+    const acted = result.reason !== 'mismatch' || !before || before.includes(expect.slice(-20)) || (result.idle ?? Infinity) < HANDS_ON_SECONDS;
     for (const e of live) lost.set(e.turn, acted ? 'acted' : 'unknown');
     for (const d of chain) d.gone = true;
     chain = [];
