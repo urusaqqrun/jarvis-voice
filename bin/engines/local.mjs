@@ -107,10 +107,11 @@ export function createLocalEngine({ model, language = 'auto', threads = 2, onFin
   };
 }
 
-// 即時預覽：雲端轉寫時，講話中用本機 SenseVoice 認目前這句（一句 0.15 秒左右），只拿來在游標旁的小框顯示、不貼。
-// 載不起來（沒下載模型）就沒有預覽，不算錯。recognize(pcm24k) → 認出來的字（簡體，呼叫端轉正體）
+// 即時預覽：雲端轉寫時，講話中用本機 SenseVoice 認目前這句（一句 0.15 秒左右）：游標在框裡就邊講邊打，不然在游標旁的小框顯示。
+// 載不起來（沒下載模型）就沒有預覽，不算錯。recognize(pcm24k) → 認出來的字（簡體，呼叫端轉正體）。
+// language：auto 會把開頭的「嗯」認成日文「うん」，知道講什麼語言就給（zh、en、ja、ko、yue）
 const PREVIEW_MAX_SECONDS = 15; // 很長的一句只認最後 15 秒，免得越講越慢
-export function createPreviewer({ model, threads = 2, log = () => {} }) {
+export function createPreviewer({ model, language = 'auto', threads = 2, log = () => {} }) {
   let recognizer = null;
   let sherpa = null;
   try {
@@ -123,7 +124,7 @@ export function createPreviewer({ model, threads = 2, log = () => {} }) {
     sherpa = require('sherpa-onnx-node');
     recognizer = new sherpa.OfflineRecognizer({
       featConfig: { sampleRate: 16000, featureDim: 80 },
-      modelConfig: { senseVoice: { model: modelFile, language: 'auto', useInverseTextNormalization: 1 }, tokens, numThreads: threads, provider: 'cpu', debug: 0 },
+      modelConfig: { senseVoice: { model: modelFile, language, useInverseTextNormalization: 1 }, tokens, numThreads: threads, provider: 'cpu', debug: 0 },
     });
   } catch (err) {
     log(`即時預覽的本機模型載不起來，不顯示預覽：${err.message}`);

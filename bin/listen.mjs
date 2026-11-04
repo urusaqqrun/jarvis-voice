@@ -15,9 +15,10 @@
 //   - 字一回來就開始 AI 整理（游標不在輸入框時同時挑好要寫的框）；整理好時已經停了 1.2 秒就直接貼，
 //     又開口就作廢、等整段講完一起整理。
 //   - 轉寫、AI 整理每次同時送兩份，誰先回用誰。
-//   - 草稿（speed.draft，規則在核心 core/draft.mjs）：字一回來就先把原稿貼進游標所在的輸入框，AI 整理好再把那段換掉；想送就直接送，不用等。
-//     已經送出、自己改過、游標移走、換了 app 就不換。游標不在輸入框、選取了字、開頭講「指令」時不寫草稿，照原本整理好才寫。
-//   - 游標旁的小框（app/ui.js）：講話中即時顯示聽到的字（本機 SenseVoice 預覽）、整理中、已貼上、已整理、指令、出錯。
+//   - 字先進輸入框（規則在核心 core/draft.mjs）：講話中就把本機預覽認到的字打進游標所在的輸入框（speed.live），講完一句換成準的轉寫（speed.draft），
+//     AI 整理好再把那段換掉；想送就直接送，不用等。已經送出、自己改過、游標移走、換了 app 就不再改。
+//     游標不在輸入框、選取了字、開頭講「指令」時不先寫，照原本整理好才寫。
+//   - 游標旁的小框（app/ui.js）：字已經在框裡就只寫狀態（聽著、整理中、已整理）；游標不在框裡才寫聽到的字（本機 SenseVoice 預覽）。指令、出錯照舊。
 //   每次貼上 log 記一行「速度：講完到貼上 X 秒（字回來、整理好、貼上各花多少）」（只記 log，小框不顯示秒數）。
 //
 // 轉寫引擎看設定檔（bin/config.mjs）：local 本機 SenseVoice、openai 自己的 key（預設 gpt-transcribe 一般轉寫，
@@ -153,9 +154,11 @@ function bubble(state, { text = '', detail = '', speaker = '' } = {}) {
   emit({ type: 'bubble', state, ...(content ?? {}), at: lastAnchor });
 }
 
-// 讀到上下文就記下游標在哪，小框跟著放
+// 讀到上下文就記下游標在哪，小框跟著放；游標在框裡（會邊講邊打）小框就只寫狀態
+let fieldEditable = false;
 function noteAnchor(ctx) {
   if (!ctx) return;
+  fieldEditable = !!ctx.field?.editable && !ctx.field.selected && !ctx.field.secure;
   if (ctx.field?.editable && ctx.field.caret) lastAnchor = { ...ctx.field.caret, kind: 'caret' };
   else if (ctx.frame) lastAnchor = { ...ctx.frame, kind: 'window' };
 }
@@ -211,7 +214,7 @@ function startEngine() {
     onError: (message) => setError(message),
     // info：引擎交回 commit 時給的 meta（turn、voiceEndAt）加上 ms、early（整句引擎才有）
     onFinal: (raw, info = {}) => {
-      finishedPreview(info.turn);
+      const turn = finishedPreview(info.turn);
       const heard = { ...info, heardAt: Date.now() };
       const text = finishText(raw, {
         output: config.output,
@@ -220,12 +223,13 @@ function startEngine() {
       });
       if (!isSpeech(text)) {
         log(`轉寫結果：${text ? `「${text}」只有標點` : '（空的）'}，這句沒有字，不寫`);
+        void drafts.drop(turn);
         showHeard();
         segmenter.check();
         return;
       }
       log(`轉寫結果：${text}`);
-      if (aiReady()) void addSentence(text, heard).catch((err) => log(`這句沒併進這段：${err?.stack || err}`));
+      if (aiReady()) void addSentence(text, heard, turn).catch((err) => log(`這句沒併進這段：${err?.stack || err}`));
       else enqueueOutput({ kind: 'text', text, heard });
     },
   };
@@ -236,10 +240,11 @@ function startEngine() {
   else engine = createRealtimeEngine({ connector: parallelSandboxConnector(config.parallelsandbox), ...callbacks });
   // 講話中的即時預覽：雲端轉寫才需要（本機轉寫本來就快），有小框才看得到
   const wantPreview = config.speed.preview && bubbleOn() && config.engine !== 'local';
+  const previewKey = `${config.local.model}|${previewLanguage()}`;
   if (!wantPreview) { previewer = null; previewModel = ''; }
-  else if (previewModel !== config.local.model) {
-    previewModel = config.local.model;
-    previewer = createPreviewer({ model: config.local.model, log });
+  else if (previewModel !== previewKey) {
+    previewModel = previewKey;
+    previewer = createPreviewer({ model: config.local.model, language: previewLanguage(), log });
   }
   log(`轉寫引擎：${config.engine}${config.engine === 'openai' ? `（${config.openai.model}，詞彙 ${config.openai.keywords.length} 個）` : ''}`);
   startVoiceprint();
@@ -254,6 +259,12 @@ function cubelvLanguage() {
   if (langs.length === 1 && langs[0].startsWith('ja')) return 'ja';
   if (langs.length === 1 && langs[0].startsWith('en')) return 'en';
   return !langs.length && /^zh/i.test(process.env.VOICE_DICTATION_LANG || process.env.LANG || '') ? 'zh-Hant' : '';
+}
+
+// 本機預覽（SenseVoice）的語言：設定檔 local.language 有寫就照它，沒寫照轉寫的語言（auto 會把開頭的「嗯」認成日文打進框）
+function previewLanguage() {
+  if (config.local.language && config.local.language !== 'auto') return config.local.language;
+  return { 'zh-Hant': 'zh', ja: 'ja', en: 'en' }[cubelvLanguage()] ?? 'auto';
 }
 
 function reloadConfigIfChanged() {
@@ -434,6 +445,7 @@ function takeBatch(chunk) {
       const heard = previews.get(currentTurn) ?? '';
       if (audioFile) log(`擋掉的這句：音檔 ${audioFile}，本機預覽聽到「${heard}」`);
       finishedPreview(currentTurn);
+      void drafts.drop(currentTurn);
       showHeard(heard);
     }
     turnAudio = [];
@@ -489,9 +501,14 @@ function speechStarted() {
   showHeard();
 }
 
-// ---- 講話中的即時預覽（游標旁的小框）：本機 SenseVoice 每多 0.5 秒聲音認一次目前這句，只顯示、不貼 ----
+// ---- 講話中的即時預覽：本機 SenseVoice 每多 0.5 秒聲音認一次目前這句。游標在框裡就直接打進框（speed.live），不然寫在游標旁的小框 ----
 
 const PREVIEW_STEP_BYTES = 24000; // 0.5 秒（24 kHz、16-bit）
+const LIVE_MIN_BYTES = 48000; // 講滿 1 秒才開始打：別人短短一聲（Yeah、Okay）、雜音不會先打進框
+const LIVE_MAX_CHECK_BYTES = 288000; // 講了 6 秒聲紋還不夠像你：這句不再比，講完照草稿寫
+// 聲紋要這麼像你才邊講邊打。放行的門檻是 0.3，但 11/04 實測轉出來是空的雜音就在 0.31～0.37、你講的 0.43～0.83；
+// 沒到就只是先不打，這句講完照樣寫
+const LIVE_MIN_SCORE = 0.42;
 let currentTurn = 0; // 第幾句（開口一次加一）
 let turnAudio = []; // 這句到目前的聲音
 let turnAudioBytes = 0;
@@ -499,44 +516,62 @@ let previewedBytes = 0;
 let previewBusy = false;
 let finalTurn = 0; // 雲端轉寫已經回來的最後一句；比它舊的預覽不再顯示
 const previews = new Map(); // 第幾句 → 預覽的字（雲端的字回來就拿掉）
+let liveTurn = 0; // 比過聲紋、可以邊講邊打的那句
+
+const liveOn = () => !!previewer && !!config.speed.draft && !!config.speed.live && aiReady();
+
+// 這句認到的字打進框（核心 core/draft.mjs 的 preview；游標不在框裡它會寫不進去，這句就不再試）
+function typeLive(turnNo, text, pcm) {
+  if (!liveOn() || pcm.length < LIVE_MIN_BYTES) return;
+  if (voiceprint?.enrolled() && liveTurn !== turnNo) {
+    if (pcm.length > LIVE_MAX_CHECK_BYTES) return;
+    const r = voiceprint.check(pcm, pcm.length / (SAMPLE_RATE * 2), { dryRun: true });
+    if (!r.pass || (r.score ?? 0) < LIVE_MIN_SCORE) return;
+    liveTurn = turnNo;
+  }
+  drafts.preview(turnNo, text);
+}
 
 function schedulePreview() {
   if (!previewer || previewBusy || turnAudioBytes - previewedBytes < PREVIEW_STEP_BYTES) return;
   previewBusy = true;
   previewedBytes = turnAudioBytes;
   const turnNo = currentTurn;
-  previewer.recognize(Buffer.concat(turnAudio, turnAudioBytes)).then((raw) => {
+  const pcm = Buffer.concat(turnAudio, turnAudioBytes);
+  previewer.recognize(pcm).then((raw) => {
     const text = finishText(raw, { output: config.output, replacements: config.replacements });
     if (turnNo <= finalTurn || !isSpeech(text)) return;
     previews.set(turnNo, text);
+    typeLive(turnNo, text, pcm);
     showHeard();
   }, (err) => log(`即時預覽失敗：${err.message}`)).finally(() => { previewBusy = false; });
 }
 
-// 雲端的字回來了：這句（和更早的）預覽拿掉，換成雲端的字
+// 雲端的字回來了：這句（和更早的）預覽拿掉，換成雲端的字。回傳這是第幾句
 function finishedPreview(turnNo) {
   const upTo = turnNo ?? (detector.speaking ? currentTurn - 1 : currentTurn);
   finalTurn = Math.max(finalTurn, upTo);
   for (const k of previews.keys()) if (k <= upTo) previews.delete(k);
+  return upTo;
 }
 
 // 小框顯示目前聽到的：寫什麼由核心 speechBubble 決定（CubeLV 同一個）。Mac 不開 confirmedOnly：一開口就跟著出字，
 // 講完比過聲紋才標「你說的」，別人講的說「別人在講話」。ignored：剛切完的這句聲紋不像你時，本機預覽聽到的字
-// 這段有草稿：轉好的字已經在框裡，小框只寫還沒進框的（還在講、還在轉的那幾句），整理中也不再把字寫一次
+// 字已經在框裡（寫了草稿、正在邊講邊打，或游標在框裡等著打）：小框只寫狀態，不再把字寫一次；游標不在框裡才寫聽到的字
 function showHeard(ignored) {
   if (state !== 'listening') return;
-  const drafted = !!drafts.current();
-  const parts = drafted ? [] : segmenter.parts();
+  const inField = drafts.typing() || (liveOn() && fieldEditable);
+  const parts = inField ? [] : segmenter.parts();
   const shown = speechBubble({
     heard: heardText(parts),
-    live: heardText(parts, [...previews.values()]),
+    live: inField ? '' : heardText(parts, [...previews.values()]),
     working: segmenter.working() || '',
     speaking: detector.speaking,
     // 聲紋還在背景學的時候不標是誰講的（core/voiceprint.mjs：沒有建立聲紋這一步）
     speaker: voiceprint?.enrolled() ? lastSpeaker : '',
     ignored,
   });
-  if (shown) bubble(shown.state, { text: shown.state === 'working' && drafted ? '' : shown.text, speaker: shown.speaker });
+  if (shown) bubble(shown.state, { text: inField ? '' : shown.text, speaker: shown.speaker });
   else if (!outputQueue.length && !outputBusy) bubble('hide');
 }
 
@@ -693,12 +728,21 @@ const segmenter = createSegmenter({
   log,
 });
 
-// 轉好一句：先寫草稿（speed.draft，規則在核心 core/draft.mjs）再併進這一段。
-// 這段前面的草稿已經不再換（送出了、自己改了、游標移走了）：那些字不算這段，從這句重新開始
-async function addSentence(text, heard) {
+// 轉好一句：換掉框裡這句的預覽、接進草稿（speed.draft，規則在核心 core/draft.mjs），再併進這一段。
+// 這段前面的字已經不再改（送出了、自己改了、游標移走了）：那些字不算這段，從這句重新開始；這句也已經送出就不算
+async function addSentence(text, heard, turn) {
   if (config.speed.draft) {
-    const { restart } = await drafts.add(text);
+    const { written, restart, dropped, stale } = await drafts.add(text, turn);
+    if (written) log(`這句進框：${text}`);
     if (restart) segmenter.clear();
+    if (stale) segmenter.add(stale, heard);
+    if (dropped) {
+      writeLast(text);
+      log(`這句已經送出或改過（框裡是邊講邊打的字），準的字不寫，放在「複製上一句」：${text}`);
+      showHeard();
+      segmenter.check();
+      return;
+    }
   }
   segmenter.add(text, heard);
   showHeard();
@@ -722,30 +766,32 @@ let outputBusy = false;
 let askedAccessibility = false;
 let lastInserted = null; // { pid, text：實際貼上的字, raw：原稿, ai：是不是 AI 整理過 }
 const rememberedTargets = new Map(); // `${pid}:${視窗標題}` → 上次寫進去的輸入框
-// 草稿：字先進輸入框，整理好再換掉（規則在核心 core/draft.mjs），這裡接 AX 小幫手
+// 字先進輸入框：邊講邊打、準的字換掉預覽、整理好再換掉（規則在核心 core/draft.mjs），這裡接 AX 小幫手
 const drafts = createDraftWriter({
   commands: () => commandsOn(),
   log,
-  write: async (text, expect) => {
+  rewrite: async ({ expect, same, text, where, why }) => {
     if (dryPaste) {
-      emit({ type: 'draft', text, dry: true });
-      return { ok: true, continued: true, before: '', where: { pid: 0, handle: 0 } };
+      if (why === 'sentence') emit({ type: 'draft', text, dry: true });
+      return { ok: true, before: '', where: { pid: 0, handle: 0 } };
     }
-    const front = await frontNow();
-    if (!front.pid || (!always && !allowed(front.bundle))) return { ok: false };
-    const written = await axCall('draft', { pid: front.pid, text, expect, chars: config.ai.contextChars }, 6000);
+    const front = where ? null : await frontNow();
+    const pid = where?.pid ?? front.pid;
+    if (!pid || (front && !always && !allowed(front.bundle))) return { ok: false, reason: 'no-app' };
+    // 寫準的字、整理後的字時，游標跑到按鈕這類地方就寫回原本那個框（跟貼上找不到框時自動對焦一樣）；講話中的預覽不搶焦點
+    const written = await axCall('rewrite', {
+      pid, expect, same, text, chars: config.ai.contextChars, handle: where?.handle ?? 0, refocus: why !== 'preview' && !!config.autoFocus,
+    }, 6000);
     if (written?.result !== 'ok') {
-      log(`這句不寫草稿，整理好才寫：${written?.result ?? '小幫手沒回'}`);
-      return { ok: false };
+      if (why === 'sentence') log(`這句沒有先寫進框：${written?.result ?? '小幫手沒回'}`);
+      if (why === 'preview' && !expect) fieldEditable = false; // 游標其實不在框裡（或寫不進去）：小框改寫聽到的字
+      return { ok: false, reason: written?.result ?? 'no-reply', before: written?.before ?? '' };
     }
-    log(`草稿：${text}${written.continued ? '' : '（前面的草稿已經送出或改過，不再換）'}`);
-    hudWrite('pasted');
-    emit({ type: 'draft', text });
-    return { ok: true, continued: written.continued, before: written.before, where: { pid: front.pid, handle: written.handle } };
-  },
-  replace: async (old, text, draft) => {
-    if (dryPaste) return 'ok';
-    return (await axCall('replace', { pid: draft.where.pid, old, text }, 6000))?.result ?? 'no-reply';
+    if (why === 'sentence') {
+      hudWrite('pasted');
+      emit({ type: 'draft', text });
+    } else if (why === 'preview') emit({ type: 'live', text });
+    return { ok: true, before: written.before ?? '', where: { pid, handle: written.handle } };
   },
 });
 const vocab = createVocabAuto({

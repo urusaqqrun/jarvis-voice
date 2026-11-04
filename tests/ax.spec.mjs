@@ -2,7 +2,7 @@
 // 不送任何按鍵：測試視窗不在最前面，貼上要回 not-front，填字改成直接設值。跑測試的程式沒有「輔助使用」權限就跳過。
 
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -212,38 +212,50 @@ async function waitText(pid, want) {
   return text;
 }
 
-// 草稿的一整輪：先貼、接著貼、換字、選取了字不寫、按送出之後不換
+// 邊講邊打的一整輪：接著寫、改後面幾個字、整段換掉、連續快速改、選取了字不寫、對不上不動、按送出之後不改
 async function draftRound(pid) {
-  const first = await ax.call('draft', { pid, text: '嗯第一句 hello. ', expect: '' });
-  assert.deepEqual([first.result, first.continued, first.before], ['ok', true, '']);
+  const clipboard = execFileSync('/usr/bin/pbpaste').toString();
+  const write = (expect, same, text) => ax.call('rewrite', { pid, expect, same, text });
+  const first = await write('', 0, '嗯第一句 hello. ');
+  assert.deepEqual([first.result, first.before], ['ok', '']);
   assert.equal(await waitText(pid, '嗯第一句 hello. '), '嗯第一句 hello. ');
-  const second = await ax.call('draft', { pid, text: '第二句。', expect: '嗯第一句 hello. ' });
-  assert.deepEqual([second.result, second.continued, second.before], ['ok', true, '嗯第一句 hello. ']);
-  assert.equal((await ax.call('replace', { pid, old: '嗯第一句 hello. 第二句。', text: '第一句 hello，第二句。' })).result, 'ok');
-  assert.equal(await waitText(pid, '第一句 hello，第二句。'), '第一句 hello，第二句。');
-  // 換完游標還在最後面：下一句接得上
-  const third = await ax.call('draft', { pid, text: '第三句', expect: '第一句 hello，第二句。' });
-  assert.deepEqual([third.result, third.continued], ['ok', true]);
-  assert.equal(await waitText(pid, '第一句 hello，第二句。第三句'), '第一句 hello，第二句。第三句');
-  // 上一段還在整理又多寫了一段：連後面的一起換，換完游標還在最後面
-  assert.equal((await ax.call('replace', { pid, old: '第二句。第三句', text: '第二句！第三句' })).result, 'ok');
-  assert.equal(await waitText(pid, '第一句 hello，第二句！第三句'), '第一句 hello，第二句！第三句');
+  const second = await write('嗯第一句 hello. ', 12, '第二');
+  assert.deepEqual([second.result, second.before], ['ok', '嗯第一句 hello. ']);
+  // 只改後面幾個字：前面不動、游標還在最後面
+  assert.equal((await write('嗯第一句 hello. 第二', 13, '三句')).result, 'ok');
+  assert.equal(await waitText(pid, '嗯第一句 hello. 第三句'), '嗯第一句 hello. 第三句');
+  // 整段換掉（整理好了）
+  assert.equal((await write('嗯第一句 hello. 第三句', 0, '第一句 hello，第三句。')).result, 'ok');
+  assert.equal(await waitText(pid, '第一句 hello，第三句。'), '第一句 hello，第三句。');
+  // 講話中連續改（一秒兩次以上）：一個字都不能亂、剪貼簿最後要還原
+  let text = '第一句 hello，第三句。';
+  for (const piece of ['我們', '明天', '下午', '四點', '開會', '記得帶筆電']) {
+    assert.equal((await write(text, text.length, piece)).result, 'ok');
+    text += piece;
+  }
+  assert.equal(await waitText(pid, text), text);
+  // 拿掉這幾句（別人在講話）
+  assert.equal((await write(text, '第一句 hello，第三句。'.length, '')).result, 'ok');
+  assert.equal(await waitText(pid, '第一句 hello，第三句。'), '第一句 hello，第三句。');
+  assert.equal(execFileSync('/usr/bin/pbpaste').toString(), clipboard, '剪貼簿要還原');
   // 選取了字（又講話可能是要改寫）不寫
   assert.equal((await ax.call('act', { pid, action: 'key', key: 'cmd+a' })).result, 'ok');
   await sleep(200);
-  assert.equal((await ax.call('draft', { pid, text: '不該出現', expect: '' })).result, 'has-selection');
+  assert.equal((await write('', 0, '不該出現')).result, 'has-selection');
   assert.equal((await ax.call('act', { pid, action: 'key', key: 'right' })).result, 'ok');
   await sleep(200);
-  // 自己接著打字：游標前面不是草稿，不換
-  assert.equal((await ax.call('replace', { pid, old: '第二句', text: '不該換' })).result, 'mismatch');
-  // 按送出（框清空）：不換，框裡不會多出字；下一句從空的框開始
+  // 游標前面不是我們寫的：不動，回現在游標前的字
+  const wrong = await write('第二句', 0, '不該換');
+  assert.deepEqual([wrong.result, wrong.before], ['mismatch', '第一句 hello，第三句。']);
+  // 按送出（框清空）：不改，框裡不會多出字；下一句從空的框開始
   assert.equal((await ax.call('act', { pid, action: 'key', key: 'Enter' })).result, 'ok');
   assert.equal(await waitText(pid, ''), '');
-  assert.equal((await ax.call('replace', { pid, old: '第三句', text: '第三句。' })).result, 'mismatch');
+  const sent = await write('第三句。', 0, '第三句！');
+  assert.deepEqual([sent.result, sent.before], ['mismatch', '']);
   await sleep(600);
   assert.equal(await fieldText(pid), '');
-  const next = await ax.call('draft', { pid, text: '新的一句', expect: '第三句' });
-  assert.deepEqual([next.result, next.continued, next.before], ['ok', false, '']);
+  const next = await write('', 0, '新的一句');
+  assert.deepEqual([next.result, next.before], ['ok', '']);
   assert.equal(await waitText(pid, '新的一句'), '新的一句');
   assert.equal((await ax.call('act', { pid, action: 'key', key: 'Enter' })).result, 'ok');
   assert.equal(await waitText(pid, ''), '');
@@ -251,7 +263,7 @@ async function draftRound(pid) {
 
 // 開獨立的 Chrome（自己的設定資料夾，不碰平常用的）：Claude 桌面版、Chrome 的輸入框都是這個引擎，輔助使用資訊又晚一點才更新。
 // 會搶前景約 5 秒，要 VOICE_DICTATION_FOCUS_TESTS=1 才跑
-test('草稿：真的網頁輸入框（textarea、contenteditable）先貼、換字、送出後不換', {
+test('邊講邊打：真的網頁輸入框（textarea、contenteditable）接著寫、改字、送出後不改', {
   skip: (!trusted && '沒有輔助使用權限') || (!process.env.VOICE_DICTATION_FOCUS_TESTS && '會搶前景，要 VOICE_DICTATION_FOCUS_TESTS=1') || (!existsSync(CHROME) && '沒有 Chrome'),
   timeout: 60_000,
 }, async () => {
@@ -283,7 +295,7 @@ test('草稿：真的網頁輸入框（textarea、contenteditable）先貼、換
 });
 
 // 原生的文字框（NSTextView）。會搶前景約 2 秒，要 VOICE_DICTATION_FOCUS_TESTS=1 才跑
-test('草稿：原生文字框先貼、換字；清空後不換', {
+test('邊講邊打：原生文字框先寫、改字；清空後不改', {
   skip: (!trusted && '沒有輔助使用權限') || (!process.env.VOICE_DICTATION_FOCUS_TESTS && '會搶前景，要 VOICE_DICTATION_FOCUS_TESTS=1'),
   timeout: 30_000,
 }, async () => {
@@ -296,15 +308,15 @@ test('草稿：原生文字框先貼、換字；清空後不換', {
       if (!ctx?.field?.editable) await sleep(150);
     }
     assert.ok(await holdFront(pid), '測試視窗要到最前面');
-    const first = await ax.call('draft', { pid, text: '嗯我們四點開會', expect: '' });
-    assert.deepEqual([first.result, first.continued, first.before], ['ok', true, '']);
+    const first = await ax.call('rewrite', { pid, expect: '', same: 0, text: '嗯我們四點開會' });
+    assert.deepEqual([first.result, first.before], ['ok', '']);
     assert.equal(await waitText(pid, '嗯我們四點開會'), '嗯我們四點開會');
-    assert.equal((await ax.call('replace', { pid, old: '嗯我們四點開會', text: '我們四點開會。' })).result, 'ok');
+    assert.equal((await ax.call('rewrite', { pid, expect: '嗯我們四點開會', same: 0, text: '我們四點開會。' })).result, 'ok');
     assert.equal(await waitText(pid, '我們四點開會。'), '我們四點開會。');
     assert.equal((await ax.call('act', { pid, action: 'key', key: 'cmd+a' })).result, 'ok');
     assert.equal((await ax.call('act', { pid, action: 'key', key: 'backspace' })).result, 'ok');
     assert.equal(await waitText(pid, ''), '');
-    assert.equal((await ax.call('replace', { pid, old: '我們四點開會。', text: '不該出現' })).result, 'mismatch');
+    assert.equal((await ax.call('rewrite', { pid, expect: '我們四點開會。', same: 0, text: '不該出現' })).result, 'mismatch');
     await sleep(500);
     assert.equal(await fieldText(pid), '');
   } finally {
@@ -313,7 +325,7 @@ test('草稿：原生文字框先貼、換字；清空後不換', {
   }
 });
 
-test('草稿：不在前景不寫', { skip: !trusted && '沒有輔助使用權限', timeout: 30_000 }, async () => {
+test('邊講邊打：不在前景不寫', { skip: !trusted && '沒有輔助使用權限', timeout: 30_000 }, async () => {
   const win = spawn('/usr/bin/osascript', ['-l', 'JavaScript', join(import.meta.dirname, 'fixtures', 'test-window.js'), '--empty'], { stdio: 'ignore' });
   try {
     const pid = win.pid;
@@ -323,7 +335,7 @@ test('草稿：不在前景不寫', { skip: !trusted && '沒有輔助使用權�
       if (!ctx?.field?.editable) await sleep(150);
     }
     assert.ok(await sendToBack(pid), '測試視窗要在背景');
-    assert.equal((await ax.call('draft', { pid, text: '不該出現', expect: '' })).result, 'not-front');
+    assert.equal((await ax.call('rewrite', { pid, expect: '', same: 0, text: '不該出現' })).result, 'not-front');
     assert.equal(await fieldText(pid), '');
   } finally {
     win.kill();

@@ -359,29 +359,47 @@ export function speechBubble(input: {
   confirmedOnly?: boolean;
 }): { state: 'working' | 'hearing' | 'ignored'; text: string; speaker: '' | 'mine' | 'short' } | null;
 
-// ---- 草稿：字先進輸入框，整理好再換掉（draft.mjs）----
+// ---- 字先進輸入框：邊講邊打、準的字換掉預覽、整理好再換掉（draft.mjs）----
 export interface Draft<W = unknown> {
   /** 框裡這份草稿現在的字 */
   text: string;
   /** 寫之前游標前的字（給 AI 當上下文） */
   before: string;
-  where: W;
+  where: W | null;
   /** 不再換了（送出了、自己改了、游標移走了） */
   gone: boolean;
   writtenAt: number;
 }
+export interface DraftRewrite<W = unknown> {
+  /** 游標前面要正好是這些字（我們寫的） */
+  expect: string;
+  /** 留下 expect 的前幾個字 */
+  same: number;
+  /** 後面換成這些字 */
+  text: string;
+  where: W | null;
+  why: 'preview' | 'sentence' | 'settle' | 'drop';
+}
+export type DraftRewriteResult<W = unknown> = { ok: true; before?: string; where?: W } | { ok: false; reason: string; before?: string };
+export const LIVE_PAUSE_MS: number;
 export interface DraftWriter<W = unknown> {
-  add(sentence: string): Promise<{ written: boolean; restart: boolean }>;
+  /** 這句講到一半認到的字，框裡跟著改 */
+  preview(turn: number, text: string): void;
+  /** restart：這段前面的字不再算這段；dropped：這句不算（已經送出）；stale：等不到準的字、留在框裡的預覽，要併進這段 */
+  add(sentence: string, turn?: number): Promise<{ written: boolean; restart: boolean; dropped?: boolean; stale?: string }>;
+  /** 這句不算：把預覽拿掉 */
+  drop(turn?: number): Promise<void>;
   close(): Draft<W> | null;
-  /** 'ok' 換好了、'same' 字一樣不用換、'gone' 早就不再換，其他是 replace 回的原因 */
+  /** 'ok' 換好了、'same' 字一樣不用換、'gone' 早就不再換，其他是對不上的原因 */
   settle(draft: Draft<W>, text: string): Promise<string>;
   forget(draft: Draft<W>): void;
   current(): Draft<W> | null;
+  /** 框裡有這次講的字 */
+  typing(): boolean;
   busy(): boolean;
 }
 export function createDraftWriter<W = unknown>(input: {
-  write: (text: string, expect: string) => Promise<{ ok: boolean; continued?: boolean; before?: string; where?: W }>;
-  replace: (old: string, text: string, draft: Draft<W>) => Promise<string>;
+  rewrite: (request: DraftRewrite<W>) => Promise<DraftRewriteResult<W>>;
   commands?: () => boolean;
   log?: (m: string) => void;
   now?: () => number;

@@ -7,7 +7,7 @@
 
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
@@ -75,11 +75,11 @@ async function dictate(wav, { blur = false } = {}) {
     }, 100);
     const ownAt = [];
     const child = spawn(process.execPath, [join(ROOT, 'bin', 'listen.mjs'), '--file', wav, '--pid', String(win.pid)], {
-      env: { ...process.env, VOICE_DICTATION_STATE_DIR: stateDir, VOICE_DICTATION_CONFIG: process.env.VOICE_DICTATION_CONFIG || join(homedir(), '.voice-dictation', 'config.json') },
+      env: { ...process.env, VOICE_DICTATION_HUD: '1', VOICE_DICTATION_STATE_DIR: stateDir, VOICE_DICTATION_CONFIG: process.env.VOICE_DICTATION_CONFIG || join(homedir(), '.voice-dictation', 'config.json') },
     });
     let out = '';
     let log = '';
-    child.stdout.on('data', (d) => { out += d; if (/"(draft|pasted)"/.test(String(d))) ownAt.push(Date.now()); });
+    child.stdout.on('data', (d) => { out += d; if (/"(live|draft|pasted)"/.test(String(d))) ownAt.push(Date.now()); });
     child.stderr.on('data', (d) => {
       log += d;
       if (blur && /切出一句/.test(log) && !existsSync(blurFile)) writeFileSync(blurFile, '');
@@ -103,13 +103,13 @@ async function dictate(wav, { blur = false } = {}) {
 
 const CASES = [
   { name: 'blur', say: '我們明天下午四點開會，記得帶筆電。', blur: true, expect: [/四點/, /開會/] },
-  { name: 'normal', say: '我們明天下午四點開會，記得帶筆電。', expect: [/四點/, /開會/, /筆電/] },
+  { name: 'normal', say: '我們明天下午四點開會，記得帶筆電。', live: true, expect: [/四點/, /開會/, /筆電/] },
   { name: 'hello', say: '哈囉，哈囉，哈囉。', expect: [/哈囉[^哈]*哈囉/] },
   { name: 'test', say: '測試，測試，測試。', expect: [/測試[^測]*測試/] },
   { name: 'short', say: '好', expect: [/好/] },
   { name: 'swear', say: '他媽的，這個又壞掉了。', expect: [/他媽的/, /壞掉/] },
-  { name: 'mixed', say: '這個問題是 deploy 之後才出現的，我等一下用 Slack 跟你說。', expect: [/deploy/i, /slack/i] },
-  { name: 'filler', say: '嗯，我們明天三點，不對，四點開會。', expect: [/四點/, /開會/], reject: [/三點/, /嗯/] },
+  { name: 'mixed', say: '這個問題是 deploy 之後才出現的，我等一下用 Slack 跟你說。', live: true, expect: [/deploy/i, /slack/i] },
+  { name: 'filler', say: '嗯，我們明天三點，不對，四點開會。', live: true, expect: [/四點/, /開會/], reject: [/三點/, /嗯/] },
   { name: 'quiet', say: '我們明天下午四點開會，記得帶筆電。', volume: 0.09, expect: [/四點/, /開會/] },
 ];
 
@@ -118,6 +118,9 @@ test('真的講話：念出來的句子一路轉寫、整理，貼進測試視�
   mkdirSync(stateDir, { recursive: true });
   const vocab = join(homedir(), '.voice-dictation', 'vocabulary.txt');
   if (existsSync(vocab)) copyFileSync(vocab, join(stateDir, 'vocabulary.txt'));
+  // 邊講邊打要本機預覽的模型（聲紋放在暫存的狀態資料夾，還在學，不擋）
+  const models = join(homedir(), '.voice-dictation', 'models');
+  if (existsSync(models)) symlinkSync(models, join(stateDir, 'models'));
   const failures = [];
   const latencies = [];
   try {
@@ -140,10 +143,13 @@ test('真的講話：念出來的句子一路轉寫、整理，貼進測試視�
       if (pastedEvent?.latencyMs) latencies.push(pastedEvent.latencyMs);
       t.diagnostic(`${c.name}：念「${c.say}」→ 轉寫「${raw}」→ 視窗裡「${value}」${speed ? `；${speed}` : ''}`);
       const bad = [...c.expect.filter((re) => !re.test(value)).map((re) => `少了 ${re}`), ...(c.reject ?? []).filter((re) => re.test(value)).map((re) => `不該有 ${re}`)];
-      // 游標在框裡（blur 例外：切完句才離開）：字先進框，整理好才換；換了字，視窗裡就是換好的
+      // 字先進框，整理好才換（blur：切完句游標離開框，寫準的字時對焦回原本的框）；換了字，視窗裡就是換好的
       const draftAt = events.findIndex((e) => e.type === 'draft');
-      if (!c.blur && (draftAt < 0 || draftAt > events.indexOf(pastedEvent))) bad.push('草稿要比換字早');
-      if (c.blur && draftAt >= 0) bad.push('游標不在框裡不該寫草稿');
+      if (draftAt < 0 || draftAt > events.indexOf(pastedEvent)) bad.push('草稿要比換字早');
+      // 講話中就打進框：比這句準的字回來還早
+      const liveAt = events.findIndex((e) => e.type === 'live');
+      if (c.live && (liveAt < 0 || liveAt > draftAt)) bad.push('講話中就要打進框');
+      if (c.live) t.diagnostic(`${c.name}：講話中打進框 ${events.filter((e) => e.type === 'live').map((e) => `「${e.text}」`).join('')}`);
       if (bad.length) failures.push(`${c.name}（視窗裡「${value}」）：${bad.join('、')}\n${log.trim().split('\n').slice(-8).join('\n')}`);
     }
   } finally {
