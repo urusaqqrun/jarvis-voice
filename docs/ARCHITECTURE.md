@@ -174,7 +174,7 @@ LINE 這類 app 輔助使用只讀得到搜尋框和訊息框（實測 3 個元�
 
 - `turns.mjs`：`AudioTurnDetector` 判斷有沒有人聲（門檻跟著最近 3 秒的底噪走，尖峰夠高也算），停頓 850 ms 切一句；`TurnSplitter` 再加上開口前 0.4 秒的預錄，回傳這批要送出去的聲音和切出來的句子，還有暫定斷句（停 400 ms 報 `tentative`、之後又開口報 `resumed`），呼叫端可以先送轉寫。
 - `hedge.mjs`：同一個請求同時送幾份、誰先成功用誰，其他的取消；`ownKeyService` 的 `hedge` 選項用它。
-- `transcription.mjs`：`createTranscriber` 是一條 OpenAI Realtime transcription 連線（每句一個 commit；連線前的聲音先排著；斷了就重連，把還沒拿到字的聲音與句子照順序重送；每句的字照講的順序、帶起訖時間）。Mac 小程式用 `lazy`（有聲音才連，安靜夠久先關）。`createSpeechTranscription` 是一段錄音（輸入框聽寫、驗收錄影的字幕）：斷句、時鐘校正、`hearing`／`recognizing` 狀態、checkpoint、finish。
+- `transcription.mjs`：`createTranscriber` 是一條 OpenAI Realtime transcription 連線（每句一個 commit；連線前的聲音先排著；斷了就重連，把還沒拿到字的聲音與句子照順序重送；每句的字照講的順序、帶起訖時間）。Mac 小程式用 `lazy`（有聲音才連，安靜夠久先關）。`createSpeechTranscription` 是一段錄音（輸入框聽寫、驗收錄影的字幕）：斷句、時鐘校正、`hearing`／`recognizing` 狀態、checkpoint、finish。後端算聲紋擋掉的句子，聲音先留在前端（最多 10 句）：App 的「這是我的話」叫 `claim`，另開一條連線（`transcribeClip`，不送聲紋設定）只轉那句、照講的順序插回去，聲紋那邊記成你的（`voiceprint.mjs` 的 `confirm`：分數連打底都不到就從按的這幾句重學，有到打底就加進最近的聲音、這一場門檻降回那句以下）。
 - `dictation.mjs`：輸入框聽寫停下後的第二層與寫回：`polishTranscript`（整理、逾時照原稿）、`applyPolish`（寫成什麼、要不要送出、留不留換回原文）、`revertPolish`、`joinPolished`。
 
 一段話講完之後的流程也在核心，Mac 小程式（`bin/listen.mjs`）和 CubeLV 的「對 CEO 鈕講話」走同一份，各自只接接頭：

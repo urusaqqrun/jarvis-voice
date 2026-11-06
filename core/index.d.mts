@@ -156,7 +156,8 @@ export class TurnSplitter {
 /** 轉寫連線接頭：WebSocket 網址，或連線前要帶的 header 與開線後第一個送出的設定。 */
 export type TranscriptionTarget = string | { url: string; headers?: Record<string, string>; sessionUpdate?: object };
 export type TranscriptionConnect = () => Promise<TranscriptionTarget>;
-export interface TranscriptItemUpdate { id: string; startMs: number; endMs?: number; text: string; final: boolean }
+/** claimed：「這是我的話」補回來的那句（聲紋擋掉後使用者說是他講的），晚到、照講的順序插回去 */
+export interface TranscriptItemUpdate { id: string; startMs: number; endMs?: number; text: string; final: boolean; claimed?: boolean }
 export type VoiceActivity = 'idle' | 'hearing' | 'recognizing';
 export interface TranscriberOptions {
   connect: TranscriptionConnect;
@@ -175,7 +176,11 @@ export interface TranscriberOptions {
   openTimeoutMs?: number;
   /** 只聽使用者的聲音：後端算聲紋、照這份擋（createRemoteVoiceprint().transcription） */
   voiceprint?: TranscriptionVoiceprint | null;
+  /** 聲紋擋掉、還可以補回（claim）的句子有變 */
+  onSkipped?: (turns: SkippedTurn[]) => void;
 }
+/** 聲紋擋掉、還可以補回的一句：seconds、score 是後端算的；claiming＝正在補回 */
+export interface SkippedTurn { sequence: number; startMs: number; endMs: number; seconds: number | null; score: number | null; claiming: boolean }
 /** 後端每句回來的聲紋結果 */
 export interface VoiceprintTurnEvent { type: 'voiceprint.turn'; commit_event_id: string; pass: boolean; score: number | null; seconds: number; embedding: number[] | null; ms?: number }
 export interface TranscriptionVoiceprint {
@@ -184,6 +189,8 @@ export interface TranscriptionVoiceprint {
   onReady?(info: { model?: string }): boolean;
   /** 每句的結果；回傳 true＝擋法變了，再送一次 */
   onTurn?(event: VoiceprintTurnEvent): boolean;
+  /** 「這是我的話」：擋掉的那句使用者說是他講的；回傳 true＝擋法變了，再送一次 */
+  onClaim?(event: VoiceprintTurnEvent): boolean;
   /** 這個後端不會擋（舊版、沒裝模型）：照常轉寫，畫面別再顯示「正在建立聲紋」 */
   onUnsupported?(): void;
 }
@@ -203,6 +210,8 @@ export interface Transcriber {
   finish(): Promise<string>;
   /** 這句作廢：字不算進全文、不用等它回來 */
   discard(sequence: number): void;
+  /** 「這是我的話」：另開一條連線轉聲紋擋掉的那句，字照講的順序放回去，聲紋記成你的。回傳字；沒有這句回 null；轉不出來丟錯 */
+  claim(sequence: number): Promise<string | null>;
   idle(state?: { active?: boolean; quietForMs?: number; speaking?: boolean }): void;
   close(): void;
 }
@@ -211,6 +220,8 @@ export interface SpeechTranscription {
   push(samples: Int16Array, at?: { startSample?: number; at?: number }): void;
   cut(): void;
   updateVoiceprint(): void;
+  /** 「這是我的話」：補回聲紋擋掉的那句（Transcriber.claim） */
+  claim(sequence: number): Promise<string | null>;
   readonly speaking: boolean;
   readonly capturedUntilMs: number;
   readonly failed: Error | null;
@@ -226,6 +237,8 @@ export function createSpeechTranscription(options: Omit<TranscriberOptions, 'onP
   earlyTranscribe?: false | 'split' | 'resend';
   earlyTranscribeMs?: number;
 }): SpeechTranscription;
+/** 另開一條連線只轉一段聲音（24 kHz PCM16）：不送聲紋設定，送完就 commit、等字、關掉 */
+export function transcribeClip(opts: { connect: TranscriptionConnect; audio: Uint8Array; log?: (message: string) => void; timeoutMs?: number; signal?: AbortSignal }): Promise<string>;
 export function permanentError(message: string): Error & { permanent: true };
 export function base64FromBytes(bytes: Uint8Array): string;
 export const MAX_RECONNECTS: number;
@@ -274,7 +287,7 @@ export const REMOTE_VOICEPRINT_MODEL: string;
 /** 給後端的擋法：參考聲紋與門檻（短於 minSeconds 用 shortThreshold） */
 export interface VoiceprintGate { reference: number[]; threshold: number; shortThreshold: number; minSeconds: number }
 export function passesGate(gate: VoiceprintGate | null, score: number | null | undefined, sec: number): boolean;
-export interface VoiceprintSaved { model: string; at: number; enrolled: number[][]; recent: number[][]; pending: { v: number[]; sec: number }[]; session?: { at: number; score: number }[] }
+export interface VoiceprintSaved { model: string; at: number; enrolled: number[][]; recent: number[][]; pending: { v: number[]; sec: number }[]; session?: { at: number; score: number }[]; claims?: { at: number; score: number }[] }
 /** 每句判斷完：畫面只拿來說略過了幾句（聲紋在背景學，不顯示建立中、還要講幾秒） */
 export interface VoiceprintChange { enrolled: boolean; pass: boolean; verdict: VoiceprintVerdict['verdict']; score: number | null }
 export function createRemoteVoiceprint(opts: {
@@ -283,14 +296,16 @@ export function createRemoteVoiceprint(opts: {
   threshold?: number; minSeconds?: number; shortThreshold?: number;
 }): { enrolled(): boolean; reset(): void; transcription: TranscriptionVoiceprint };
 export interface VoiceprintVerdict { pass: boolean; verdict: 'enrolling' | 'enrolled' | 'short' | 'mine' | 'other'; score: number | null; kept?: number }
-export function createVoiceprint(opts?: { state?: { enrolled?: number[][]; recent?: number[][]; pending?: { v: number[]; sec: number }[]; session?: { at: number; score: number }[] }; threshold?: number; minSeconds?: number; shortThreshold?: number; now?: () => number }): {
+export function createVoiceprint(opts?: { state?: { enrolled?: number[][]; recent?: number[][]; pending?: { v: number[]; sec: number }[]; session?: { at: number; score: number }[]; claims?: { at: number; score: number }[] }; threshold?: number; minSeconds?: number; shortThreshold?: number; now?: () => number }): {
   enrolled(): boolean;
   judge(v: ArrayLike<number>, sec: number, opts?: { dryRun?: boolean }): VoiceprintVerdict;
+  /** 「這是我的話」：被擋掉的那句是使用者講的。分數不到打底門檻就從這句重學（relearn）；有到就加進最近的聲音、這一場門檻不高過它 */
+  confirm(v: ArrayLike<number>, sec: number, score: number | null): { relearn: boolean };
   /** 這一場的長句門檻（同一場放行的長句滿 3 句後跟著分數往上提） */
   threshold(): number;
   gate(): VoiceprintGate | null;
   reset(): void;
-  state(): { enrolled: number[][]; recent: number[][]; pending: { v: number[]; sec: number }[]; session: { at: number; score: number }[] };
+  state(): { enrolled: number[][]; recent: number[][]; pending: { v: number[]; sec: number }[]; session: { at: number; score: number }[]; claims: { at: number; score: number }[] };
 };
 export function pickEnrollment<T extends { v: ArrayLike<number>; sec: number }>(items: T[]): T[];
 export function cosine(a: ArrayLike<number>, b: ArrayLike<number>): number;

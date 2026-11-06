@@ -8,6 +8,9 @@
 //   - 只聽使用者的聲音（voiceprint 選項，手機不裝模型）：開線先送 voiceprint.config（參考聲紋與門檻，還在錄樣本是 null），
 //     每句 commit 前送 voiceprint.turn_info（這句講了幾秒）；後端算聲紋，不像就整句不送 OpenAI，回 voiceprint.turn。
 //     舊後端不認這些事件（OpenAI 回錯，帶 voiceprint_ 開頭的 event_id）：記成不支援、不重連，照常轉寫。
+//   - 「這是我的話」（claim）：後端擋掉的那句，聲音先留在這裡（最多 MAX_HELD 句）。使用者說是他講的，就另開一條連線只轉這句
+//     （transcribeClip，不送聲紋設定，後端不擋），字照講的順序放回去（onItem 帶 claimed）；聲紋那邊記成你的（voiceprint.onClaim），
+//     擋法變了再送一次設定。不像你的話平常照樣不轉寫，按了才轉。
 // 只用 WebSocket、setTimeout、btoa、crypto.randomUUID：瀏覽器和 Node 都有，不用 node: 模組。
 
 import { TurnSplitter } from './turns.mjs';
@@ -19,6 +22,11 @@ const OPEN_TIMEOUT_MS = 10_000;
 const IDLE_CLOSE_MS = 60_000;
 // control 一條連線最多 10 分鐘：快到時趁空檔先換新的
 const MAX_SOCKET_AGE_MS = 9 * 60_000;
+// 聲紋擋掉的句子最多留幾句可以補回（「這是我的話」）：聲音留在記憶體，一句 10 秒約 480 KB
+const MAX_HELD = 10;
+// 補回一句（另開一條連線轉）最多等多久；聲音分小批送（每批 0.25 秒，跟收音一樣小，後端的訊息大小有上限）
+const CLIP_TIMEOUT_MS = 20_000;
+const CLIP_CHUNK_BYTES = 12_000;
 
 export function base64FromBytes(bytes) {
   let binary = '';
@@ -45,6 +53,8 @@ export function permanentError(message) {
 //   voiceprint：{ config() → 擋法或 null, onReady(info) → 擋法變了?, onTurn(event) → 擋法變了?, onUnsupported() }（core/voiceprint.mjs 的
 //     createRemoteVoiceprint().transcription）。後端擋掉的句子當成沒有字（不等字、不重送）。updateVoiceprint()：擋法變了再送一次。
 //     onUnsupported：這個後端不會擋（舊版、沒裝模型），畫面別再顯示「正在建立聲紋」。
+//   onSkipped(句子)：聲紋擋掉、還可以補回的句子有變（多一句、補回來、作廢）：[{ sequence, startMs, endMs, seconds, score, claiming }]。
+//     claim(序號)：「這是我的話」，補回那句（見檔頭）。
 export function createTranscriber({
   connect,
   onItem,
@@ -61,8 +71,9 @@ export function createTranscriber({
   retryBaseMs = 500,
   openTimeoutMs = OPEN_TIMEOUT_MS,
   voiceprint = null,
+  onSkipped,
 }) {
-  const parts = new Map(); // item id → { draft, final, startMs, endMs }
+  const parts = new Map(); // item id → { draft, final, startMs, endMs, sequence, claimed }
   const order = [];
   const outgoing = []; // 還沒送的：{ kind: 'audio', bytes } | { kind: 'commit', turn }
   const sent = []; // 已經送給這條連線、還沒拿到逐字稿的聲音與斷句；連線斷了就照原順序重送
@@ -90,6 +101,9 @@ export function createTranscriber({
   let openWaiters = [];
   let voiceprintState = 'unknown'; // unknown（還沒回）、ready（後端會擋）、unsupported（舊後端）
   const voiceprintSeen = new Set(); // 已經交給 onTurn 的句子（斷線重送同一句不記兩次樣本）
+  const held = new Map(); // 聲紋擋掉、還可以補回的句子：序號 → { sequence, startMs, endMs, audio, event, claiming, learned }
+  let claimsInFlight = 0;
+  const claimAbort = new AbortController(); // 關掉時，正在補回的那幾條一起關
   const socketState = () => `ws=${ws?.readyState ?? 'none'}`;
   const note = (message) => {
     const extra = describe();
@@ -120,7 +134,7 @@ export function createTranscriber({
   const publishItem = (id) => {
     const part = ensurePart(id);
     if (part.dropped) onItem?.({ id, startMs: part.startMs ?? elapsed(), endMs: part.endMs, text: '', final: true });
-    else onItem?.({ id, startMs: part.startMs ?? elapsed(), endMs: part.endMs, text: part.final ?? part.draft, final: part.final !== null });
+    else onItem?.({ id, startMs: part.startMs ?? elapsed(), endMs: part.endMs, text: part.final ?? part.draft, final: part.final !== null, ...(part.claimed ? { claimed: true } : {}) });
   };
   const publish = () => onTranscript?.(transcript(true));
 
@@ -140,7 +154,7 @@ export function createTranscriber({
   };
 
   const maybeResolveFinish = () => {
-    if (!finishRequested || !finishResolve || pendingBytes || outgoing.length || commitsWaitingForIds.length || waitingForFinal.size) return;
+    if (!finishRequested || !finishResolve || pendingBytes || outgoing.length || commitsWaitingForIds.length || waitingForFinal.size || claimsInFlight) return;
     const resolve = finishResolve;
     finishResolve = null;
     finishReject = null;
@@ -188,6 +202,23 @@ export function createTranscriber({
       short_threshold: gate?.shortThreshold ?? null,
       min_seconds: gate?.minSeconds ?? null,
     }));
+  };
+
+  const reportHeld = () => onSkipped?.([...held.values()].map(({ sequence, startMs, endMs, event, claiming }) => ({
+    sequence, startMs, endMs, seconds: event?.seconds ?? null, score: event?.score ?? null, claiming,
+  })));
+  // 擋掉的那句先留著（「這是我的話」補回用）；作廢的句子（提早送了、又開口）不留，最多留 MAX_HELD 句（丟最舊的）
+  const hold = (turn, chunks, event) => {
+    if (!chunks.length || dropped.has(turn.sequence)) return;
+    const audio = new Uint8Array(chunks.reduce((n, chunk) => n + chunk.length, 0));
+    let offset = 0;
+    for (const chunk of chunks) { audio.set(chunk, offset); offset += chunk.length; }
+    held.set(turn.sequence, { sequence: turn.sequence, startMs: turn.startMs, endMs: turn.endMs, audio, event, claiming: false, learned: false });
+    for (const [sequence, other] of held) {
+      if (held.size <= MAX_HELD) break;
+      if (!other.claiming) held.delete(sequence);
+    }
+    reportHeld();
   };
 
   const flush = () => {
@@ -257,6 +288,7 @@ export function createTranscriber({
           if (at >= 0) {
             let from = at;
             while (from > 0 && sent[from - 1].kind === 'audio') from -= 1;
+            hold(turn, sent.slice(from, at).map((op) => op.bytes), event);
             sent.splice(from, at - from + 1);
           }
           settleTurn(turn.sequence, false);
@@ -271,6 +303,7 @@ export function createTranscriber({
         const part = ensurePart(event.item_id);
         part.startMs = turn.startMs;
         part.endMs = turn.endMs;
+        part.sequence = turn.sequence;
         sequenceItems.set(turn.sequence, event.item_id);
         if (dropped.has(turn.sequence)) part.dropped = true;
         else itemTurns.set(event.item_id, turn.sequence);
@@ -432,6 +465,7 @@ export function createTranscriber({
     discard(sequence) {
       if (!sequence || dropped.has(sequence)) return;
       dropped.add(sequence);
+      if (held.has(sequence) && !held.get(sequence).claiming) { held.delete(sequence); reportHeld(); }
       const id = sequenceItems.get(sequence);
       if (id !== undefined) {
         const part = parts.get(id);
@@ -443,6 +477,44 @@ export function createTranscriber({
       }
       if (pendingTurns.has(sequence)) settleTurn(sequence, false);
       maybeResolveFinish();
+    },
+    // 「這是我的話」：擋掉的那句另開一條連線轉，字照講的順序放回去（onItem 帶 claimed）；聲紋那邊記成你的，擋法變了就送新的給後端。
+    // 回傳這句的字（轉出來是空的回 ''）；連不上、逾時丟錯，那句留著可以再按。沒有這句（已經補回、作廢、太舊被丟掉）回 null
+    async claim(sequence) {
+      const turn = held.get(sequence);
+      if (!turn || turn.claiming || closedByClient) return null;
+      turn.claiming = true;
+      claimsInFlight += 1;
+      reportHeld();
+      // 再按一次（上次沒轉成）不重記聲紋
+      if (!turn.learned) {
+        turn.learned = true;
+        if (voiceprintOn() && voiceprint?.onClaim?.(turn.event)) sendVoiceprintConfig();
+      }
+      try {
+        const text = (await transcribeClip({ connect, audio: turn.audio, log, signal: claimAbort.signal })).trim();
+        held.delete(sequence);
+        if (text) {
+          const id = `claim_${sequence}`;
+          parts.set(id, { draft: '', final: text, startMs: turn.startMs, endMs: turn.endMs, sequence, claimed: true });
+          // 照講的順序放回去：排在比它晚講的第一句前面
+          const at = order.findIndex((other) => (parts.get(other)?.sequence ?? -Infinity) > sequence);
+          if (at < 0) order.push(id);
+          else order.splice(at, 0, id);
+          publishItem(id);
+          publish();
+        }
+        note(`voiceprint claimed turn ${sequence} chars=${text.length}`);
+        return text;
+      } catch (error) {
+        turn.claiming = false;
+        note(`voiceprint claim failed turn ${sequence}: ${error?.message ?? error}`);
+        throw error;
+      } finally {
+        claimsInFlight -= 1;
+        reportHeld();
+        maybeResolveFinish();
+      }
     },
     // 送出去、還在等字的句子數
     pending: () => pendingTurns.size,
@@ -468,9 +540,9 @@ export function createTranscriber({
       if (finishRequested) throw new Error('Realtime transcription is already finishing.');
       finishRequested = true;
       stageAudio();
-      if (!outgoing.some((op) => op.kind === 'commit') && !commitsWaitingForIds.length && !waitingForFinal.size) return transcript().trim();
+      if (!outgoing.some((op) => op.kind === 'commit') && !commitsWaitingForIds.length && !waitingForFinal.size && !claimsInFlight) return transcript().trim();
       flush();
-      if (!outgoing.length && !commitsWaitingForIds.length && !waitingForFinal.size) return transcript().trim();
+      if (!outgoing.length && !commitsWaitingForIds.length && !waitingForFinal.size && !claimsInFlight) return transcript().trim();
       await waitForOpen();
       flush();
       return new Promise((resolve, reject) => {
@@ -493,6 +565,7 @@ export function createTranscriber({
     },
     close() {
       closedByClient = true;
+      claimAbort.abort();
       if (reconnectTimer !== undefined) { clearTimeout(reconnectTimer); reconnectTimer = undefined; }
       for (const checkpoint of checkpoints) checkpoint.reject(new Error('Realtime transcription closed.'));
       checkpoints.clear();
@@ -503,6 +576,36 @@ export function createTranscriber({
       onPending?.();
     },
   };
+}
+
+// transcribeClip —— 另開一條連線只轉一段聲音（「這是我的話」補回被聲紋擋掉的那句）：不送聲紋設定（後端不擋），
+// 聲音分小批送完就 commit、等字、關掉。connect 跟原本那條一樣（每次連線重新叫）。回傳這段的字；連不上、逾時、signal 中止就丟錯
+export function transcribeClip({ connect, audio, log = () => {}, timeoutMs = CLIP_TIMEOUT_MS, signal } = {}) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let transcriber = null;
+    let timer;
+    const end = (error, text) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
+      transcriber?.close();
+      if (error) reject(error);
+      else resolve(text);
+    };
+    const onAbort = () => end(new Error('Clip transcription aborted.'));
+    if (signal?.aborted) { onAbort(); return; }
+    signal?.addEventListener('abort', onAbort, { once: true });
+    timer = setTimeout(() => end(new Error('Clip transcription timed out.')), timeoutMs);
+    transcriber = createTranscriber({ connect, log, maxReconnects: 1, onError: (error) => end(error) });
+    for (let offset = 0; offset < audio.length; offset += CLIP_CHUNK_BYTES) {
+      transcriber.append(audio.subarray(offset, offset + CLIP_CHUNK_BYTES));
+      transcriber.flush();
+    }
+    transcriber.commit({ startMs: 0, endMs: Math.round(audio.length / 48) });
+    transcriber.finish().then((text) => end(null, text), (error) => end(error));
+  });
 }
 
 // 聲音不是一開就一直在跑：AudioContext 晚開、被 iOS 中斷（另一段錄音還在收尾）、麥克風暫時沒聲音時，
@@ -595,6 +698,8 @@ export function createSpeechTranscription({ recordingStartedAt, onActivity, earl
     },
     cut,
     updateVoiceprint: () => transcriber.updateVoiceprint(),
+    // 「這是我的話」：補回聲紋擋掉的那句（createTranscriber 的 claim）
+    claim: (sequence) => transcriber.claim(sequence),
     get speaking() { return splitter.speaking; },
     get capturedUntilMs() { return capturedUntilMs; },
     get failed() { return transcriber.failed; },

@@ -39,7 +39,7 @@ function voices(seed = 11) {
 
 const GATE = { reference: [1, 0], threshold: 0.3, shortThreshold: 0.1, minSeconds: 1.5 };
 
-function startSpeech(voiceprint) {
+function startSpeech(voiceprint, extra = {}) {
   const errors = [];
   let sample = 0;
   const origin = Date.now();
@@ -49,6 +49,7 @@ function startSpeech(voiceprint) {
     retryBaseMs: 10,
     onError: (error) => errors.push(error),
     voiceprint,
+    ...extra,
   });
   // 先安靜 1 秒（底噪），講 seconds 秒，再停 1 秒（停 0.85 秒就切句、commit）
   const say = (seconds) => {
@@ -282,4 +283,185 @@ test('前端記樣本：這一場的門檻動了也算擋法變了（核心再�
   assert.equal(turn(1.8), true, '第三句：門檻往上提，擋法要再送');
   assert.ok(remote.transcription.config().threshold > 0.45, `${remote.transcription.config().threshold}`);
   assert.equal(saved.session.length, 3);
+});
+
+// 「這是我的話」：擋掉的那句聲音留在前端，按了另開一條連線只轉這句、照講的順序插回去；聲紋那邊記成你的
+const audioBytes = (messages) => messages.reduce((n, m) => n + Buffer.from(m.audio, 'base64').length, 0);
+// 第 index 句（從 0 算）commit 之前送的聲音（上一句 commit 之後）
+const turnAppends = (socket, index) => {
+  const commits = socket.sent.map((e, i) => (e.type === 'input_audio_buffer.commit' ? i : -1)).filter((i) => i >= 0);
+  const from = index === 0 ? 0 : commits[index - 1] + 1;
+  return socket.sent.slice(from, commits[index]).filter((e) => e.type === 'input_audio_buffer.append');
+};
+
+test('這是我的話：擋掉的那句聲音留著；claim 另開一條連線（不送聲紋設定）只轉這句，字插回原本的位置；聲紋記成你的、擋法再送一次', async () => {
+  const claimed = [];
+  const skippedLists = [];
+  const items = [];
+  const voiceprint = { config: () => GATE, onTurn: () => false, onClaim: (event) => { claimed.push(event); return true; } };
+  const { session, errors, say } = startSpeech(voiceprint, { onSkipped: (list) => skippedLists.push(list), onItem: (item) => items.push(item) });
+  await tick();
+  const main = FakeSocket.all[0];
+  main.open();
+  main.emit({ type: 'voiceprint.ready', model: core.REMOTE_VOICEPRINT_MODEL });
+  const answer = (index, pass, text) => {
+    const commit = main.of('input_audio_buffer.commit')[index];
+    main.emit({ type: 'voiceprint.turn', commit_event_id: commit.event_id, pass, score: pass ? 0.8 : 0.16, seconds: 2, embedding: pass ? [1, 0] : [0.2, 1] });
+    if (!pass) return;
+    main.emit({ type: 'input_audio_buffer.committed', item_id: `item${index}` });
+    main.emit({ type: 'conversation.item.input_audio_transcription.completed', item_id: `item${index}`, transcript: text });
+  };
+  say(2); await tick(300); answer(0, true, '第一句');
+  say(2); await tick(300); answer(1, false);
+  say(2); await tick(300); answer(2, true, '第三句');
+  assert.deepEqual(skippedLists.at(-1).map((t) => ({ sequence: t.sequence, score: t.score, claiming: t.claiming })), [{ sequence: 2, score: 0.16, claiming: false }]);
+
+  const pending = session.claim(2);
+  assert.equal(skippedLists.at(-1)[0].claiming, true, '按下去就標補回中');
+  assert.equal(claimed.length, 1, '聲紋那邊馬上記成你的');
+  assert.equal(main.of('voiceprint.config').length, 2, '擋法變了：主連線再送一次設定');
+  await tick();
+  assert.equal(FakeSocket.all.length, 2, '另開一條連線');
+  const clip = FakeSocket.all[1];
+  clip.open();
+  assert.equal(clip.of('voiceprint.config').length, 0, '補回那條不送聲紋設定（後端不擋）');
+  assert.equal(clip.of('voiceprint.turn_info').length, 0);
+  assert.equal(audioBytes(clip.of('input_audio_buffer.append')), audioBytes(turnAppends(main, 1)), '送的是被擋那句的聲音');
+  assert.ok(clip.of('input_audio_buffer.append').every((m) => Buffer.from(m.audio, 'base64').length <= 12000), '分小批送');
+  assert.equal(clip.of('input_audio_buffer.commit').length, 1);
+  clip.emit({ type: 'input_audio_buffer.committed', item_id: 'clip' });
+  clip.emit({ type: 'conversation.item.input_audio_transcription.completed', item_id: 'clip', transcript: '第二句' });
+  assert.equal(await pending, '第二句');
+  assert.equal(clip.readyState, 3, '轉完就關掉');
+  assert.deepEqual(skippedLists.at(-1), [], '補回了：不再列在略過的句子裡');
+  const back = items.find((item) => item.claimed);
+  assert.deepEqual({ text: back.text, final: back.final }, { text: '第二句', final: true });
+  assert.equal(await session.claim(2), null, '同一句不能補兩次');
+  assert.equal(await session.finish(), '第一句第二句第三句', '照講的順序插回去');
+  assert.deepEqual(errors, []);
+  session.close();
+});
+
+test('這是我的話：還沒轉好就按停止，finish 等它補回來；連不上就丟錯、那句留著可以再按，聲紋只記一次', async () => {
+  const claimed = [];
+  const skippedLists = [];
+  const voiceprint = { config: () => GATE, onTurn: () => false, onClaim: (event) => { claimed.push(event); return false; } };
+  const { session, errors, say } = startSpeech(voiceprint, { onSkipped: (list) => skippedLists.push(list) });
+  await tick();
+  const main = FakeSocket.all[0];
+  main.open();
+  say(2);
+  await tick(300);
+  const [commit] = main.of('input_audio_buffer.commit');
+  main.emit({ type: 'voiceprint.turn', commit_event_id: commit.event_id, pass: false, score: 0.2, seconds: 2, embedding: [0, 1] });
+
+  // 第一次：補回那條連兩次都斷（重連一次就放棄）
+  const failed = session.claim(1);
+  await tick();
+  FakeSocket.all[1].drop();
+  await tick(600);
+  FakeSocket.all[2].drop();
+  await assert.rejects(failed);
+  assert.equal(skippedLists.at(-1)[0].claiming, false, '轉不出來：那句留著');
+  assert.equal(main.of('voiceprint.config').length, 1, 'onClaim 回 false：擋法沒變就不再送');
+
+  // 再按一次，這次還沒轉好就按停止
+  const again = session.claim(1);
+  await tick();
+  const finished = session.finish();
+  let done = false;
+  void finished.then(() => { done = true; });
+  await tick(50);
+  assert.equal(done, false, 'finish 等補回那句');
+  const clip = FakeSocket.all[3];
+  clip.open();
+  clip.emit({ type: 'input_audio_buffer.committed', item_id: 'clip' });
+  clip.emit({ type: 'conversation.item.input_audio_transcription.completed', item_id: 'clip', transcript: '是我講的' });
+  assert.equal(await again, '是我講的');
+  assert.equal(await finished, '是我講的');
+  assert.equal(claimed.length, 1, '再按一次不重記聲紋');
+  assert.deepEqual(errors, []);
+  session.close();
+});
+
+test('這是我的話：作廢的句子（提早送、又開口）不留；關掉之後補回中的那條一起關', async () => {
+  const skippedLists = [];
+  const transcriber = core.createTranscriber({
+    connect: async () => 'wss://transcribe',
+    voiceprint: { config: () => GATE, onTurn: () => false },
+    onSkipped: (list) => skippedLists.push(list),
+  });
+  await tick();
+  const main = FakeSocket.all[0];
+  main.open();
+  const say = () => { transcriber.append(new Uint8Array(4800).fill(1)); return transcriber.commit({ startMs: 0, endMs: 100 }); };
+  const skip = (index) => main.emit({ type: 'voiceprint.turn', commit_event_id: main.of('input_audio_buffer.commit')[index].event_id, pass: false, score: 0.1, seconds: 1, embedding: [0, 1] });
+  const first = say();
+  skip(0);
+  assert.equal(skippedLists.at(-1).length, 1);
+  transcriber.discard(first);
+  assert.deepEqual(skippedLists.at(-1), [], '作廢：不能補回');
+  assert.equal(await transcriber.claim(first), null);
+  const second = say();
+  skip(1);
+  const pending = transcriber.claim(second);
+  await tick();
+  const clip = FakeSocket.all[1];
+  transcriber.close();
+  await assert.rejects(pending, /aborted/);
+  assert.equal(clip.readyState, 3, '補回那條也關了');
+});
+
+test('這是我的話（confirm）：分數連打底都不到＝聲紋學錯了，從按的這幾句重學；有到打底只是被這一場的門檻擋掉，就加進最近的聲音、這一場門檻降回那句以下（不低於打底）', () => {
+  let t = 0;
+  const voice = voices(23);
+  const vp = core.createVoiceprint({ now: () => t });
+  for (let i = 0; i < 4; i += 1) vp.judge(voice(0), 3);
+  assert.equal(vp.enrolled(), true);
+  // 學錯的聲紋：自己的聲音（axis 2）0.2 被擋。按「這是我的話」三句就重學好
+  const mine = voice(2);
+  assert.equal(vp.judge(mine, 4, { dryRun: true }).pass, false);
+  assert.deepEqual(vp.confirm(mine, 4, 0.2), { relearn: true });
+  assert.equal(vp.gate(), null, '重學中：每句都放行');
+  assert.equal(vp.state().pending.length, 1, '按的這句是第一個樣本');
+  assert.deepEqual(vp.confirm(voice(2), 4, 0.26), { relearn: false }, '重學中再按：當樣本');
+  vp.confirm(voice(2), 4, 0.18);
+  assert.equal(vp.enrolled(), true, '三句湊滿 10 秒：學好了');
+  assert.equal(vp.judge(voice(2), 3, { dryRun: true }).pass, true, '自己的聲音過了');
+
+  // 被這一場往上提的門檻擋掉（0.42 < 0.5）：加進最近的聲音，這一場門檻降到 0.37
+  const at = scorer(vp, voice);
+  for (let i = 0; i < 3; i += 1) { t += 20000; vp.judge(at(0.99), 1.8); }
+  assert.equal(vp.threshold(), 0.5);
+  const recentBefore = vp.state().recent.length;
+  assert.deepEqual(vp.confirm(at(0.42), 3, 0.42), { relearn: false });
+  assert.equal(vp.state().recent.length, recentBefore + 1, '加進最近的聲音');
+  assert.ok(Math.abs(vp.threshold() - 0.37) < 1e-9, `${vp.threshold()}`);
+  assert.ok(Math.abs(vp.gate().shortThreshold - 0.37) < 1e-9, '短句也跟著降');
+  // 短句 0.33 被擋（短句門檻）再按：降到打底 0.3 就停
+  vp.confirm(at(0.33), 1, 0.33);
+  assert.equal(vp.threshold(), 0.3);
+  assert.equal(vp.gate().shortThreshold, 0.3);
+  // 存檔讀回一樣；10 分鐘後回到原本的算法
+  const again = core.createVoiceprint({ state: JSON.parse(JSON.stringify(vp.state())), now: () => t });
+  assert.equal(again.gate().shortThreshold, 0.3);
+  t += 11 * 60 * 1000;
+  assert.equal(vp.threshold(), 0.3);
+  assert.equal(vp.gate().shortThreshold, 0.4);
+  vp.reset();
+  assert.deepEqual(vp.state().claims, []);
+});
+
+test('這是我的話（前端記樣本）：onClaim 記成你的、存檔；擋法變了回 true', () => {
+  const voice = voices(29);
+  let saved = null;
+  const store = { load: () => saved, save: (s) => { saved = s; }, clear: () => { saved = null; } };
+  const remote = core.createRemoteVoiceprint({ store });
+  for (let i = 0; i < 4; i += 1) remote.transcription.onTurn({ type: 'voiceprint.turn', commit_event_id: `c${i}`, pass: true, score: null, seconds: 3, embedding: voice(0) });
+  assert.equal(remote.enrolled(), true);
+  assert.equal(remote.transcription.onClaim({ type: 'voiceprint.turn', commit_event_id: 'x', pass: false, score: 0.1, seconds: 4, embedding: voice(3) }), true, '重學：擋法變了');
+  assert.equal(remote.transcription.config(), null);
+  assert.equal(saved.enrolled.length, 0, '存檔也是重學中');
+  assert.equal(saved.pending.length, 1);
+  assert.equal(remote.transcription.onClaim({ type: 'voiceprint.turn', commit_event_id: 'y', pass: false, score: 0.1, seconds: 4, embedding: null }), false, '沒有聲紋：不記');
 });

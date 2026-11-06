@@ -25,6 +25,13 @@
 //   - 箱子模擬（Mac 那批 10 段錄音，有內容的本人句子）：本人被擋不變（長句 2.8%，被擋的是很小聲含糊、夾店員聲音那幾句），
 //     雷軍講話中穿插劉德華、fangjun（同一批錄音條件、聲音像）通過 38.5% → 7.7%。
 //   - 10/19 也試過：放寬到 0.2／0.05（同場旁人大多會過）、依個人往上調（比對群、跨場次的分數，換場次本人被擋變多），都不採用。
+//
+// 「這是我的話」（confirm）：被擋掉的那句，使用者說是他講的（App 聽寫列的按鈕，那句的字另外補回去，見 core/transcription.mjs 的 claim）：
+//   - 分數連打底門檻都不到：參考聲紋跟你現在的聲音對不上（學錯了、換了環境或麥克風），從這句重學——舊的樣本丟掉，
+//     這句當第一個樣本，接下來講的話照常轉寫、順便錄樣本，湊滿 10 秒自動學好（跟偏好設定的重錄一樣，不用另外去按）。
+//     11/06 user 在平行沙盒回報時自己的三句 0.16、0.26、0.20 全被擋（舊聲紋學錯了），自己去重錄之後馬上 0.66、0.84。
+//   - 有到打底、只是被這一場往上提的門檻（或短句門檻）擋掉：這句加進「最近的聲音」，這一場（10 分鐘）的門檻不高過這句的分數減 0.05，
+//     長句短句都是，但不低於打底 0.3（旁人最高 0.27）。
 
 export const VOICEPRINT_THRESHOLD = 0.3;
 export const VOICEPRINT_MIN_SECONDS = 1.5; // 比這短的句子用 VOICEPRINT_SHORT_THRESHOLD
@@ -41,6 +48,7 @@ const SESSION_MIN = 3; // 滿這麼多句才跟著這場的分數走
 const SESSION_KEEP = 5; // 看最近這麼多句的中位數
 const SESSION_DELTA = 0.45; // 門檻＝中位數減這麼多
 const SESSION_CAP = 0.5;
+const CLAIM_MARGIN = 0.05; // 「這是我的話」：這一場的門檻不高過那句的分數減這麼多
 // 後端算聲紋用的模型（sherpa-onnx 3dspeaker_speech_campplus_sv_zh-cn_16k-common）：存檔記著，換了模型就重錄
 export const REMOTE_VOICEPRINT_MODEL = 'campplus-zh-cn-16k-common';
 
@@ -93,20 +101,44 @@ export function createVoiceprint({ state = {}, threshold = VOICEPRINT_THRESHOLD,
   let recent = state.recent ?? [];
   let pending = state.pending ?? [];
   let session = state.session ?? [];
+  let claims = state.claims ?? []; // 這一場你說「這是我的話」的那幾句的分數：門檻不高過它
   let ref = null;
-  // 這一場的長句門檻：10 分鐘內很確定是你的長句滿 3 句，最近 5 句的中位數 − 0.45，夾在 [threshold, 0.5]
+  // 「這是我的話」壓住的門檻：10 分鐘內按過的句子裡最低的分數 − 0.05，不低於打底；沒按過是 Infinity
+  const claimCap = () => {
+    const t = now();
+    const scores = claims.filter((x) => t - x.at <= SESSION_MS).map((x) => x.score);
+    return scores.length ? Math.max(threshold, Math.min(...scores) - CLAIM_MARGIN) : Infinity;
+  };
+  // 這一場的長句門檻：10 分鐘內很確定是你的長句滿 3 句，最近 5 句的中位數 − 0.45，夾在 [threshold, 0.5]；按過「這是我的話」就不高過那句
   const current = () => {
     const t = now();
     const scores = session.filter((x) => t - x.at <= SESSION_MS).slice(-SESSION_KEEP).map((x) => x.score).sort((a, b) => a - b);
-    if (scores.length < SESSION_MIN) return threshold;
-    return Math.min(Math.max(SESSION_CAP, threshold), Math.max(threshold, scores[Math.floor(scores.length / 2)] - SESSION_DELTA));
+    const raised = scores.length < SESSION_MIN
+      ? threshold
+      : Math.min(Math.max(SESSION_CAP, threshold), Math.max(threshold, scores[Math.floor(scores.length / 2)] - SESSION_DELTA));
+    return Math.min(raised, claimCap());
   };
-  const currentShort = () => Math.max(shortThreshold, current());
+  const currentShort = () => Math.max(Math.min(shortThreshold, claimCap()), current());
   const refresh = () => {
     ref = meanVector([...enrolled.map((v) => ({ v, sec: 2 })), ...recent.map((v) => ({ v, sec: 1 }))]);
   };
   refresh();
   const pendingSeconds = () => pending.reduce((s, x) => s + x.sec, 0);
+  // 錄樣本：收 1 秒以上的句子，湊滿 10 秒（3 句以上）就挑彼此最像的那群當樣本
+  const collect = (v, sec) => {
+    if (sec >= ENROLL_MIN_TURN) pending.push({ v: Array.from(v), sec });
+    if (pendingSeconds() >= ENROLL_SECONDS && pending.length >= 3) {
+      const picked = pickEnrollment(pending);
+      if (picked.reduce((s, x) => s + x.sec, 0) >= ENROLL_SECONDS * 0.6) {
+        enrolled = picked.map((x) => x.v);
+        pending = [];
+        refresh();
+        return { pass: true, verdict: 'enrolled', score: 1, kept: picked.length };
+      }
+      pending = picked; // 太多句不像同一個人：只留像的那群，繼續收
+    }
+    return { pass: true, verdict: 'enrolling', score: null };
+  };
 
   return {
     enrolled: () => enrolled.length > 0,
@@ -121,20 +153,7 @@ export function createVoiceprint({ state = {}, threshold = VOICEPRINT_THRESHOLD,
         if (score < th) return { pass: false, verdict: 'other', score };
         return { pass: true, verdict: sec < minSeconds ? 'short' : 'mine', score };
       }
-      if (!enrolled.length) {
-        if (sec >= ENROLL_MIN_TURN) pending.push({ v: Array.from(v), sec });
-        if (pendingSeconds() >= ENROLL_SECONDS && pending.length >= 3) {
-          const picked = pickEnrollment(pending);
-          if (picked.reduce((s, x) => s + x.sec, 0) >= ENROLL_SECONDS * 0.6) {
-            enrolled = picked.map((x) => x.v);
-            pending = [];
-            refresh();
-            return { pass: true, verdict: 'enrolled', score: 1, kept: picked.length };
-          }
-          pending = picked; // 太多句不像同一個人：只留像的那群，繼續收
-        }
-        return { pass: true, verdict: 'enrolling', score: null };
-      }
+      if (!enrolled.length) return collect(v, sec);
       const score = cosine(v, ref);
       if (sec < minSeconds) { const th = currentShort(); return { pass: score >= th, verdict: score >= th ? 'short' : 'other', score }; }
       if (score < current()) return { pass: false, verdict: 'other', score };
@@ -147,6 +166,24 @@ export function createVoiceprint({ state = {}, threshold = VOICEPRINT_THRESHOLD,
       }
       return { pass: true, verdict: 'mine', score };
     },
+    // 「這是我的話」：被擋掉的那句（v、秒數、當時跟參考聲紋的分數）使用者說是他講的（規則見檔頭）。回傳 relearn：從這句重學
+    confirm(v, sec, score) {
+      if (!enrolled.length) { collect(v, sec); return { relearn: false }; }
+      if (score === null || score === undefined || score < threshold) {
+        enrolled = [];
+        recent = [];
+        pending = [];
+        session = [];
+        claims = [];
+        ref = null;
+        collect(v, sec);
+        return { relearn: true };
+      }
+      recent = [...recent, Array.from(v)].slice(-ADAPT_KEEP);
+      refresh();
+      claims = [...claims.filter((x) => now() - x.at <= SESSION_MS), { at: now(), score: Math.round(score * 1e4) / 1e4 }];
+      return { relearn: false };
+    },
     // 這一場的長句門檻
     threshold: current,
     // 給後端的擋法：參考聲紋（樣本＋最近的聲音的平均）與這一場的門檻；還在錄樣本是 null。參考聲紋變了才會換成新的陣列
@@ -156,16 +193,20 @@ export function createVoiceprint({ state = {}, threshold = VOICEPRINT_THRESHOLD,
       recent = [];
       pending = [];
       session = [];
+      claims = [];
       ref = null;
     },
-    state: () => ({ enrolled, recent, pending, session }),
+    state: () => ({ enrolled, recent, pending, session, claims }),
   };
 }
 
 // createRemoteVoiceprint —— 前端用（手機不裝模型）：聲紋由轉寫的後端每句算好送回來（voiceprint.turn），這裡記樣本、越用越準、存檔。
 //   store：{ load() → 存過的（沒有是 null）, save(存檔), clear() }。存哪由各 app 決定（CubeLV：裝置本機，每個帳號、每支麥克風一份）。
 //   onChange({ enrolled, pass, verdict, score })：每句判斷完（畫面只拿來說略過了幾句；還在學、剛學好都不顯示）。
+//   transcription.onClaim(event)：「這是我的話」，被擋掉的那句記成你的（核心的 claim 會叫，見 core/transcription.mjs）。
 // 回傳的 transcription 交給 createSpeechTranscription／createTranscriber 的 voiceprint 選項。
+const gateChanged = (before, after) => after?.reference !== before?.reference || after?.threshold !== before?.threshold || after?.shortThreshold !== before?.shortThreshold;
+
 export function createRemoteVoiceprint({ store, onChange = () => {}, ...opts }) {
   let saved = null;
   try { saved = store.load(); } catch { /* 讀不到就重錄 */ }
@@ -176,7 +217,7 @@ export function createRemoteVoiceprint({ store, onChange = () => {}, ...opts }) 
     try {
       store.save({
         model: REMOTE_VOICEPRINT_MODEL, at: Date.now(),
-        enrolled: s.enrolled.map(round), recent: s.recent.map(round), pending: s.pending.map((x) => ({ v: round(x.v), sec: x.sec })), session: s.session,
+        enrolled: s.enrolled.map(round), recent: s.recent.map(round), pending: s.pending.map((x) => ({ v: round(x.v), sec: x.sec })), session: s.session, claims: s.claims,
       });
     } catch { /* 存不進去：下次重錄 */ }
   };
@@ -207,11 +248,18 @@ export function createRemoteVoiceprint({ store, onChange = () => {}, ...opts }) 
         const before = vp.gate();
         const sessionBefore = vp.state().session;
         const r = vp.judge(normalize(event.embedding), event.seconds ?? 0);
-        const after = vp.gate();
-        const changed = after?.reference !== before?.reference || after?.threshold !== before?.threshold || after?.shortThreshold !== before?.shortThreshold;
+        const changed = gateChanged(before, vp.gate());
         if (!wasEnrolled || changed || vp.state().session !== sessionBefore) save();
         onChange({ enrolled: vp.enrolled(), pass, verdict: pass ? r.verdict : 'other', score: event.score ?? r.score });
         return changed;
+      },
+      // 「這是我的話」：後端擋掉的那句（它的 voiceprint.turn）使用者說是他講的，記成你的聲音（createVoiceprint().confirm）。回傳 true＝擋法變了
+      onClaim(event) {
+        if (!event?.embedding?.length) return false;
+        const before = vp.gate();
+        vp.confirm(normalize(event.embedding), event.seconds ?? 0, event.score ?? null);
+        save();
+        return gateChanged(before, vp.gate());
       },
     },
   };

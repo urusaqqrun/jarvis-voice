@@ -14,7 +14,7 @@ export { usable, score as fieldScore, rankTargets } from './targeter.mjs';
 export { extractEdited, replacedChunks, createLearner } from './learn.mjs';
 export { AUTO_HEADER, splitVocabulary, plausibleTerm, score as vocabScore, createVocabAuto } from './vocab.mjs';
 export { AudioTurnDetector, TurnSplitter } from './turns.mjs';
-export { createTranscriber, createSpeechTranscription, permanentError, base64FromBytes, MAX_RECONNECTS, AUDIO_GAP_MS } from './transcription.mjs';
+export { createTranscriber, createSpeechTranscription, transcribeClip, permanentError, base64FromBytes, MAX_RECONNECTS, AUDIO_GAP_MS } from './transcription.mjs';
 export { polishTranscript, mergeTranscript, joinPolished, changedWords, revertPolish, applyPolish, POLISH_TIMEOUT_MS } from './dictation.mjs';
 export { isSpeech, onlyFiller, withSpacing } from './text.mjs';
 export { readingOrder, ocrText, joinScreen } from './ocr.mjs';
