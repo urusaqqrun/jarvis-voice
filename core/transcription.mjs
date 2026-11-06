@@ -104,6 +104,8 @@ export function createTranscriber({
   const held = new Map(); // 聲紋擋掉、還可以補回的句子：序號 → { sequence, startMs, endMs, audio, event, claiming, learned }
   let claimsInFlight = 0;
   const claimAbort = new AbortController(); // 關掉時，正在補回的那幾條一起關
+  // 補回中的句子照序號排：字照講的順序交出去（onItem），晚講的先轉好就等前面的（各自另開連線，誰先回來不一定）
+  const claimQueue = [];
   const socketState = () => `ws=${ws?.readyState ?? 'none'}`;
   const note = (message) => {
     const extra = describe();
@@ -219,6 +221,24 @@ export function createTranscriber({
       if (!other.claiming) held.delete(sequence);
     }
     reportHeld();
+  };
+
+  // 補回的字放回去：照講的順序插進全文（排在比它晚講的第一句前面），onItem 帶 claimed
+  const placeClaim = ({ sequence, startMs, endMs }, text) => {
+    const id = `claim_${sequence}`;
+    parts.set(id, { draft: '', final: text, startMs, endMs, sequence, claimed: true });
+    const at = order.findIndex((other) => (parts.get(other)?.sequence ?? -Infinity) > sequence);
+    if (at < 0) order.push(id);
+    else order.splice(at, 0, id);
+    publishItem(id);
+  };
+  const releaseClaims = () => {
+    let placed = false;
+    while (claimQueue[0]?.done) {
+      const entry = claimQueue.shift();
+      if (entry.text) { placeClaim(entry.turn, entry.text); placed = true; }
+    }
+    if (placed) publish();
   };
 
   const flush = () => {
@@ -491,19 +511,14 @@ export function createTranscriber({
         turn.learned = true;
         if (voiceprintOn() && voiceprint?.onClaim?.(turn.event)) sendVoiceprintConfig();
       }
+      const entry = { turn, text: '', done: false };
+      const slot = claimQueue.findIndex((other) => other.turn.sequence > sequence);
+      if (slot < 0) claimQueue.push(entry);
+      else claimQueue.splice(slot, 0, entry);
       try {
         const text = (await transcribeClip({ connect, audio: turn.audio, log, signal: claimAbort.signal })).trim();
         held.delete(sequence);
-        if (text) {
-          const id = `claim_${sequence}`;
-          parts.set(id, { draft: '', final: text, startMs: turn.startMs, endMs: turn.endMs, sequence, claimed: true });
-          // 照講的順序放回去：排在比它晚講的第一句前面
-          const at = order.findIndex((other) => (parts.get(other)?.sequence ?? -Infinity) > sequence);
-          if (at < 0) order.push(id);
-          else order.splice(at, 0, id);
-          publishItem(id);
-          publish();
-        }
+        entry.text = text;
         note(`voiceprint claimed turn ${sequence} chars=${text.length}`);
         return text;
       } catch (error) {
@@ -511,6 +526,9 @@ export function createTranscriber({
         note(`voiceprint claim failed turn ${sequence}: ${error?.message ?? error}`);
         throw error;
       } finally {
+        // 失敗的那句不擋後面的；關掉之後不再交字
+        entry.done = true;
+        if (!closedByClient) releaseClaims();
         claimsInFlight -= 1;
         reportHeld();
         maybeResolveFinish();

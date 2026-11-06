@@ -384,6 +384,47 @@ test('這是我的話：還沒轉好就按停止，finish 等它補回來；連�
   session.close();
 });
 
+test('這是我的話：一次補好幾句、晚講的先轉好，字照講的順序交出去（onItem），補不回來的那句不擋後面', async () => {
+  const items = [];
+  const transcriber = core.createTranscriber({
+    connect: async () => 'wss://transcribe',
+    voiceprint: { config: () => GATE, onTurn: () => false },
+    onItem: (item) => { if (item.final && item.text) items.push(item.text); },
+  });
+  await tick();
+  const main = FakeSocket.all[0];
+  main.open();
+  const sequences = [1, 2, 3].map((n, index) => {
+    transcriber.append(new Uint8Array(4800).fill(n));
+    const sequence = transcriber.commit({ startMs: index * 1000, endMs: index * 1000 + 500 });
+    main.emit({ type: 'voiceprint.turn', commit_event_id: main.of('input_audio_buffer.commit')[index].event_id, pass: false, score: 0.1, seconds: 1, embedding: [0, 1] });
+    return sequence;
+  });
+  const claims = sequences.map((sequence) => transcriber.claim(sequence));
+  await tick();
+  const [clip1, clip2, clip3] = FakeSocket.all.slice(1);
+  for (const clip of [clip1, clip2, clip3]) clip.open();
+  const answer = (clip, text) => {
+    clip.emit({ type: 'input_audio_buffer.committed', item_id: 'c' });
+    clip.emit({ type: 'conversation.item.input_audio_transcription.completed', item_id: 'c', transcript: text });
+  };
+  answer(clip3, '第三句');
+  await tick();
+  assert.deepEqual(items, [], '前面的還沒回來：先等');
+  // 第一句那條斷兩次（重連一次就放棄）：補不回來
+  clip1.drop();
+  await tick(600);
+  FakeSocket.all.at(-1).drop();
+  await assert.rejects(claims[0]);
+  assert.deepEqual(items, [], '第二句還沒回來：第三句繼續等');
+  answer(clip2, '第二句');
+  await claims[1];
+  await claims[2];
+  assert.deepEqual(items, ['第二句', '第三句'], '照講的順序；補不回來的那句不擋');
+  assert.equal(transcriber.transcript(), '第二句第三句');
+  transcriber.close();
+});
+
 test('這是我的話：作廢的句子（提早送、又開口）不留；關掉之後補回中的那條一起關', async () => {
   const skippedLists = [];
   const transcriber = core.createTranscriber({
