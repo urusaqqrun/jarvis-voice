@@ -261,11 +261,12 @@ export function createDraftWriter({ rewrite, commands = () => false, log = () =>
   });
 
   return {
+    // 回傳打完的時候（已經在排隊就不回，排著的那次會打最新的）
     preview(turn, text) {
-      if (turn <= finalUpTo) return;
+      if (turn <= finalUpTo) return undefined;
       const queued = wanted.has(turn);
       wanted.set(turn, text);
-      if (!queued) void serial(() => typePreview(turn));
+      return queued ? undefined : serial(() => typePreview(turn));
     },
     add(sentence, turn = finalUpTo + 1) {
       finalUpTo = Math.max(finalUpTo, turn);
@@ -294,6 +295,8 @@ export function createDraftWriter({ rewrite, commands = () => false, log = () =>
     current: () => open?.draft ?? null,
     /** 框裡有這次講的字（草稿或邊講邊打的預覽） */
     typing: () => live.length > 0 || !!open?.draft,
+    /** 這句的預覽正在框裡（小框就不用再寫這句的字） */
+    shows: (turn) => live.some((e) => e.turn === turn),
     /** 有句子正在寫（寫完才算進這段，這時候不能算一段講完） */
     busy: () => adding > 0,
   };

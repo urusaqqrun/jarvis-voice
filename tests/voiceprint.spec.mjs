@@ -79,7 +79,7 @@ test('只聽我的聲音：先從我講的話錄樣本，旁邊的人講的那�
     assert.equal(pasted.length, 5, log);
     assert.equal((log.match(/聲紋不像你/g) ?? []).length, 1, log);
     assert.ok(existsSync(join(dir, 'voiceprint.json')), '聲紋存在本機');
-    // Mac 不開 confirmedOnly（核心 speechBubble）：一開口就跳「聽著…」，旁邊的人那句說「別人在講話」
+    // Mac 不開 confirmedOnly（核心 speechBubble）：一開口就跳「聽到聲音…」，旁邊的人那句說「別人在講話」
     assert.equal(bubbles.filter((b) => b.state === 'ignored').length, 1, JSON.stringify(bubbles));
     assert.ok(bubbles.some((b) => b.state === 'hearing'), JSON.stringify(bubbles));
   } finally {

@@ -597,3 +597,14 @@ test('兩段：整理失敗換成準的原稿（draft.raw），預覽的錯字�
   assert.equal(await drafts.settle(draft, draft.raw), 'ok');
   assert.equal(field.value, '上 prod 吧。');
 });
+
+test('小框用：shows(第幾句) 看這句的預覽在不在框裡；preview 回傳打完的時候', async () => {
+  const field = fakeField();
+  const drafts = writer(field);
+  assert.equal(drafts.shows(1), false);
+  await drafts.preview(1, '第一句');
+  assert.equal(drafts.shows(1), true);
+  assert.equal(drafts.shows(2), false);
+  await drafts.add('第一句。', 1);
+  assert.equal(drafts.shows(1), false);
+});

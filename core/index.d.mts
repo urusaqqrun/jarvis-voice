@@ -400,8 +400,8 @@ export interface DraftRewrite<W = unknown> {
 export type DraftRewriteResult<W = unknown> = { ok: true; before?: string; where?: W } | { ok: false; reason: string; before?: string; idle?: number };
 export const LIVE_PAUSE_MS: number;
 export interface DraftWriter<W = unknown> {
-  /** 這句講到一半認到的字，框裡跟著改 */
-  preview(turn: number, text: string): void;
+  /** 這句講到一半認到的字，框裡跟著改；回傳打完的時候（已經在排隊就不回） */
+  preview(turn: number, text: string): Promise<void> | undefined;
   /** restart：這段前面的字不再算這段；dropped：這句不算（已經送出）；stale：等不到準的字、留在框裡的預覽，要併進這段；
    *  kept：框裡留著的這句預覽（準的字沒寫，等整理好一次換掉） */
   add(sentence: string, turn?: number): Promise<{ written: boolean; restart: boolean; dropped?: boolean; stale?: string; kept?: string }>;
@@ -414,6 +414,8 @@ export interface DraftWriter<W = unknown> {
   current(): Draft<W> | null;
   /** 框裡有這次講的字 */
   typing(): boolean;
+  /** 這句的預覽正在框裡 */
+  shows(turn: number): boolean;
   busy(): boolean;
 }
 export function createDraftWriter<W = unknown>(input: {

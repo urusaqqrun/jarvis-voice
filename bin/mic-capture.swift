@@ -3,6 +3,8 @@
 // 10 秒只交出 8.9 秒聲音，約一成在收音那一層就掉了（講話中間少一截、句尾變「……」，log 裡卻什麼都沒有）。
 // listen.mjs 第一次用時用 swiftc 編到 <狀態資料夾>/bin/mic-capture；沒有 swiftc 或開不起來就照舊用 ffmpeg。
 // 麥克風裝置換了（插耳機、藍牙）就結束，listen.mjs 會重開；stdout 關了（listen 不要了）也結束。
+// 寫 stdout 排在另一條佇列，不在收音的 callback 裡寫：listen.mjs 卡住沒在讀（電腦很忙）時寫會卡住，卡在 callback 裡
+// AVAudioEngine 就丟聲音（11/08 listen.mjs 卡 6.4 秒，16.6 秒只收到 10.2 秒）；排著等它回神一口氣讀走，聲音晚到但不會少。
 
 import AVFoundation
 import Foundation
@@ -22,6 +24,7 @@ let outFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 24000, 
 guard let converter = AVAudioConverter(from: inFormat, to: outFormat) else { fail("轉不了麥克風的格式：\(inFormat)", 3) }
 converter.downmix = true
 let out = FileHandle.standardOutput
+let writer = DispatchQueue(label: "jarvis-voice.mic-capture.write")
 
 input.installTap(onBus: 0, bufferSize: 4800, format: inFormat) { buffer, _ in
   let capacity = AVAudioFrameCount(Double(buffer.frameLength) * 24000 / inFormat.sampleRate) + 64
@@ -37,7 +40,9 @@ input.installTap(onBus: 0, bufferSize: 4800, format: inFormat) { buffer, _ in
   }
   if error != nil || converted.frameLength == 0 { return }
   let data = Data(bytes: converted.int16ChannelData![0], count: Int(converted.frameLength) * 2)
-  do { try out.write(contentsOf: data) } catch { exit(0) }
+  writer.async {
+    do { try out.write(contentsOf: data) } catch { exit(0) }
+  }
 }
 
 NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: nil) { _ in

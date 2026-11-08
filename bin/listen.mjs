@@ -18,7 +18,7 @@
 //   - 字先進輸入框（規則在核心 core/draft.mjs）：講話中就把本機預覽認到的字打進游標所在的輸入框（speed.live），AI 整理好再把那段換掉，
 //     框裡的字只換一次（預覽少一截或沒有預覽的句子，準的轉寫回來先寫，speed.draft）；想送就直接送，不用等。已經送出、自己改過、游標移走、換了 app 就不再改。
 //     游標不在輸入框、選取了字、開頭講「指令」時不先寫，照原本整理好才寫。
-//   - 游標旁的小框（app/ui.js）：字已經在框裡就只寫狀態（聽著、整理中、已整理）；游標不在框裡才寫聽到的字（本機 SenseVoice 預覽）。指令、出錯照舊。
+//   - 游標旁的小框（app/ui.js）：寫聽到、還沒進輸入框的字（本機 SenseVoice 預覽）；字都已經打進框就只寫狀態（邊講邊打、整理中、已整理）。指令、出錯照舊。
 //   每次貼上 log 記一行「速度：講完到貼上 X 秒（字回來、整理好、貼上各花多少）」（只記 log，小框不顯示秒數）。
 //
 // 轉寫引擎看設定檔（bin/config.mjs）：local 本機 SenseVoice、openai 自己的 key（預設 gpt-transcribe 一般轉寫，
@@ -145,16 +145,16 @@ const ZH = /^zh/i.test(LANG);
 let bubbleKey = '';
 let lastAnchor = null;
 const bubbleOn = () => config.speed.bubble && (appMode || !!process.env.VOICE_DICTATION_HUD);
-function bubble(state, { text = '', detail = '', speaker = '' } = {}) {
+function bubble(state, { text = '', detail = '', speaker = '', typing = false } = {}) {
   if (!bubbleOn()) return;
-  const key = `${state}|${text}|${detail}|${speaker}|${JSON.stringify(lastAnchor)}`;
+  const key = `${state}|${text}|${detail}|${speaker}|${typing}|${JSON.stringify(lastAnchor)}`;
   if (key === bubbleKey) return;
   bubbleKey = key;
-  const content = state === 'hide' ? null : bubbleContent({ state, text, detail, speaker }, ZH ? 'zh' : 'en');
+  const content = state === 'hide' ? null : bubbleContent({ state, text, detail, speaker, typing }, ZH ? 'zh' : 'en');
   emit({ type: 'bubble', state, ...(content ?? {}), at: lastAnchor });
 }
 
-// 讀到上下文就記下游標在哪，小框跟著放；游標在框裡（會邊講邊打）小框就只寫狀態
+// 讀到上下文就記下游標在哪，小框跟著放；游標在框裡（會邊講邊打）小框只寫還沒進框的字
 let fieldEditable = false;
 function noteAnchor(ctx) {
   if (!ctx) return;
@@ -529,7 +529,8 @@ function typeLive(turnNo, text, pcm) {
     if (!r.pass || (r.score ?? 0) < LIVE_MIN_SCORE) return;
     liveTurn = turnNo;
   }
-  drafts.preview(turnNo, text);
+  // 打進框了，小框就不用再寫這句的字
+  drafts.preview(turnNo, text)?.then(() => showHeard());
 }
 
 function schedulePreview() {
@@ -556,22 +557,28 @@ function finishedPreview(turnNo) {
 }
 
 // 小框顯示目前聽到的：寫什麼由核心 speechBubble 決定（CubeLV 同一個）。Mac 不開 confirmedOnly：一開口就跟著出字，
-// 講完比過聲紋才標「你說的」，別人講的說「別人在講話」。ignored：剛切完的這句聲紋不像你時，本機預覽聽到的字
-// 字已經在框裡（寫了草稿、正在邊講邊打，或游標在框裡等著打）：小框只寫狀態，不再把字寫一次；游標不在框裡才寫聽到的字
+// 講完比過聲紋才標「你說的」，別人講的說「別人在講話」（附上聽到的字）。ignored：剛切完的這句聲紋不像你時，本機預覽聽到的字
+// 游標在框裡（寫了草稿、正在邊講邊打，或游標在框裡等著打）：已經打進框的句子不再寫一次，還沒進框的（講不到 1 秒、聲紋還沒比夠、
+// 預覽還沒打上去）寫在小框，講話中一定看得到聽到的字（11/08 使用者：講到一半變成「聽著」，不知道有沒有聽到）；
+// 字都在框裡就寫「邊講邊打」。游標不在框裡照舊寫這段聽到的全部
 function showHeard(ignored) {
   if (state !== 'listening') return;
   const inField = drafts.typing() || (liveOn() && fieldEditable);
   const parts = inField ? [] : segmenter.parts();
+  const pending = [...previews].filter(([turn]) => !(inField && drafts.shows(turn))).map(([, text]) => text);
   const shown = speechBubble({
     heard: heardText(parts),
-    live: inField ? '' : heardText(parts, [...previews.values()]),
+    live: heardText(parts, pending),
     working: segmenter.working() || '',
     speaking: detector.speaking,
     // 聲紋還在背景學的時候不標是誰講的（core/voiceprint.mjs：沒有建立聲紋這一步）
     speaker: voiceprint?.enrolled() ? lastSpeaker : '',
     ignored,
   });
-  if (shown) bubble(shown.state, { text: inField ? '' : shown.text, speaker: shown.speaker });
+  if (shown) {
+    const text = shown.state === 'working' && inField ? '' : shown.text;
+    bubble(shown.state, { text, speaker: shown.speaker, typing: inField && !text && drafts.shows(currentTurn) });
+  }
   else if (!outputQueue.length && !outputBusy) bubble('hide');
 }
 
@@ -595,9 +602,18 @@ function finishTurn() {
 let captureEnded = null;
 let captureName = 'ffmpeg'; // 現在用哪個收音（原生收音／ffmpeg），記 log 用
 // 麥克風卡住：ffmpeg 還活著但不再送聲音（電腦睡醒、麥克風裝置換了之後會這樣，10/19 卡了 4 小時才發現）。
-// 開著麥克風卻 3 秒都沒有聲音進來（安靜也會一直送 0），就重開
-const CAPTURE_STALL_MS = 3000;
+// 開著麥克風卻 8 秒都沒有聲音進來（安靜也會一直送 0），就重開。不用更短：電腦很忙時（11/08 記憶體用完）收音小幫手、
+// 這支程式自己會停 3～8 秒，聲音晚到但麥克風沒壞，重開反而把講到一半的句子切斷、再掉一兩秒聲音（11/08 一分鐘內誤重開三次）。
+// 這支程式自己剛卡住過（每 0.25 秒的心跳隔了超過 1 秒）也先不算：卡住時積著的聲音還沒讀進來
+const CAPTURE_STALL_MS = 8000;
 let lastAudioAt = 0;
+let loopBeatAt = Date.now();
+let loopStalledAt = 0;
+setInterval(() => {
+  const now = Date.now();
+  if (now - loopBeatAt > 1000) loopStalledAt = now;
+  loopBeatAt = now;
+}, 250).unref();
 // 收音程式的警告：同一句一分鐘最多記一次，附上這段時間出現幾次
 const ffmpegNotes = new Map(); // 去掉數字的那句 → { at, count }
 function logFfmpeg(line, name) {
@@ -1309,7 +1325,7 @@ async function tick() {
   frontActive = active;
 
   if (reopenCapture && ffmpeg && !inputFile) { reopenCapture = false; stopCapture(); }
-  if (ffmpeg && !inputFile && Date.now() - lastAudioAt > CAPTURE_STALL_MS) {
+  if (ffmpeg && !inputFile && Date.now() - lastAudioAt > CAPTURE_STALL_MS && Date.now() - loopStalledAt > CAPTURE_STALL_MS / 2) {
     log(`麥克風 ${((Date.now() - lastAudioAt) / 1000).toFixed(1)} 秒沒有聲音進來（${captureName}卡住，多半是電腦睡醒或換了麥克風），重開麥克風`);
     stopCapture();
   }

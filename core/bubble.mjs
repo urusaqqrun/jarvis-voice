@@ -1,15 +1,17 @@
 // JarvisVoice 核心：講話時那個小框（Mac 是游標旁的小框，CubeLV 是頂端的 toast）有哪些階段、寫什麼字、停多久。
 // 各 App 只負責畫：bubbleContent 回 { title, body, tone, loud, busy, result, holdMs }。
 // 階段（state）：
-//   hearing：講話中，text 是聽到的字；speaker 是聲紋比對（mine 你說的、short 短句）。
+//   hearing：講話中，text 是聽到、還沒打進輸入框的字；speaker 是聲紋比對（mine 你說的、short 短句）。
+//            沒有字：typing 是聽到的字都已經邊講邊打進框了（寫「邊講邊打」），不然是還沒認出字（寫「聽到聲音…」），
+//            不寫「聽著」（11/08 使用者講到一半看到「聽著」，以為沒聽到）。
 //            聲紋還在背景學的時候不標、也不說還要講多久（core/voiceprint.mjs：沒有建立聲紋這一步）；
 //   ignored：聲紋不像你、這句不轉寫（text 是預覽聽到的字；CubeLV 一直聽不跳，見 segment.mjs speechBubble 的 confirmedOnly）；
 //   working：整理中（text 是轉寫原稿；字已經先進框了就不給）；pasted：已貼上；polished：框裡的草稿換成整理後的字了；
 //   command：語音指令（text 是目標，detail 是做到哪一步，見 stepText）；done：指令完成；failed：指令沒完成（detail 是原因）；
 //   nofield：自己找也找不到可以寫的地方，這段沒寫（detail 是 App 給的補充，例如 Mac 的「複製上一句」）；error：出錯（text 是原因）；hide：收起來。
-// tone：blue 聽著／整理中、green 已貼上／完成、orange 沒貼上／沒完成、red 出錯（Mac 畫成左邊的色條）。
+// tone：blue 聽到／整理中、green 已貼上／完成、orange 沒貼上／沒完成、red 出錯（Mac 畫成左邊的色條）。
 // loud：標題要醒目（沒貼上、沒完成、出錯）；busy：標題旁轉一個小圈；result：結果（放游標上面、寬度重新量）；
-// holdMs：顯示多久就收（null＝一直留著，聽著、整理中、指令做到一半；App 自己在很久沒新消息時收）。
+// holdMs：顯示多久就收（null＝一直留著，聽到、整理中、指令做到一半；App 自己在很久沒新消息時收）。
 // lang：zh（台灣正體）、en、ja；認不得的用 en。
 
 // 指令完成只要看一眼就收（擋在畫面上很礙事）；沒完成、出錯要看得清楚原因，停久一點
@@ -17,7 +19,8 @@ export const BUBBLE_HOLD_MS = { pasted: 1400, polished: 1400, done: 700, ignored
 export const BUBBLE_MAX_CHARS = 84; // 內文最多三行：一行約 30 個中文字，只留最後這麼多字，最新的字才一定看得到
 
 const TEXT = {
-  listening: ['聽著…', 'Listening…', '聞き取り中…'],
+  listening: ['聽到聲音…', 'Hearing you…', '聞き取り中…'],
+  typing: ['邊講邊打', 'Typing as you talk', '話しながら入力中'],
   heard: ['聽到', 'Hearing', '聞き取り'],
   mine: ['你說的', 'You said', 'あなたの声'],
   short: ['你說的（短句）', 'You said (short)', 'あなたの声（短い文）'],
@@ -74,7 +77,7 @@ export function bubbleContent(e, lang = 'zh') {
   switch (e.state) {
     case 'hearing': {
       // 小標籤寫是誰講的（開了「只聽我的聲音」、聲紋學好了、這句比過才有）
-      if (!e.text) return out(t('listening'), '', 'blue');
+      if (!e.text) return out(t(e.typing ? 'typing' : 'listening'), '', 'blue');
       const who = { mine: 'mine', short: 'short' }[e.speaker];
       return out(t(who ?? 'heard'), e.text, 'blue');
     }
