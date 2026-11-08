@@ -1,7 +1,8 @@
 // JarvisVoice 核心：字先進輸入框。講話中就把本機預覽認到的字打進游標所在的輸入框（邊講邊打），一段講完換成 AI 整理後的字。
-// 框裡的字只換一次：準的轉寫回來不換掉預覽（只補句尾標點），準的字給 AI 整理用；預覽少一截（電腦卡住、預覽沒跟上）才換成準的字。
+// 講話中框裡的字只往後加，不刪不改（見 extension）；準的轉寫回來也不換掉預覽（只補上還沒打的最後幾個字和句尾標點），
+// 準的字給 AI 整理用，框裡的字整理好才換一次；預覽少一截（電腦卡住、預覽沒跟上）才換成準的字。
 // 沒有預覽的句子（講太短、聲紋還不夠像你）準的字回來就先寫。想送就直接送，不用等。
-//   preview(第幾句, 字)：這句講到一半認到的字（每次都是這句從頭到現在），框裡跟著改。
+//   preview(第幾句, 字)：這句講到一半認到的字（每次都是這句從頭到現在），框裡只接上多出來的字。
 //   add(一句, 第幾句)：這句準的字回來了，接進這段的草稿（預覽留著或換成準的字，見上面）；同一段的句子接成一份草稿。
 //     草稿的 text 是框裡實際的字，raw 是準的字（AI 整理失敗時換成 raw）。
 //   drop(第幾句)：這句不算（別人在講話、轉出來沒有字）：把預覽拿掉。
@@ -37,6 +38,31 @@ const ending = (text) => text.match(TRAILING)?.[0] ?? '';
 const bare = (text) => String(text ?? '').toLowerCase().replace(/[\s\p{P}\p{S}]/gu, '');
 const covers = (preview, sentence) => bare(preview).length >= bare(sentence).length * 0.7;
 
+// 邊講邊打只往後加字，不改已經打進框的字：預覽每 0.5 秒整句重認，前面的字常常改口（今天天器 → 今天天氣），
+// 照新的預覽把框裡的字刪掉重打，一句話會被反白重貼十幾次（11/08 使用者：「講一句話連續被整理了 N 遍」）。
+// 這句已經打的字 typed 對到新預覽的哪裡（預覽前幾個字跟 typed 編輯距離最小，一樣小取後面的：認錯一個字當成換字），
+// 只把後面多出來的字接上去；前面認錯的字留著，整理好一次換掉。最後一個字（英文是最後一個詞）還在變，hold 時先不打，
+// 下一次預覽或這句講完再補。對不起來（差超過 typed 的三成、至少 2 個字）這次就不加
+function extension(typed, preview, { hold = true } = {}) {
+  const b = [...preview];
+  let start = 0;
+  if (typed) {
+    const a = [...typed];
+    let row = Array.from({ length: b.length + 1 }, (_, j) => j);
+    for (let i = 1; i <= a.length; i += 1) {
+      const next = [i];
+      for (let j = 1; j <= b.length; j += 1) {
+        next[j] = Math.min(row[j] + 1, next[j - 1] + 1, row[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+      }
+      row = next;
+    }
+    for (let j = 1; j <= b.length; j += 1) if (row[j] <= row[start]) start = j;
+    if (row[start] > Math.max(2, Math.ceil(a.length * 0.3))) return '';
+  }
+  const rest = b.slice(start).join('');
+  return hold ? rest.replace(/(?:[A-Za-z0-9'’-]+|\S)$/u, '') : rest;
+}
+
 // 兩段字開頭一樣的長度（不切在 emoji 這類兩格的字中間）
 function samePrefix(a, b) {
   let n = 0;
@@ -67,6 +93,7 @@ export function createDraftWriter({ rewrite, commands = () => false, log = () =>
   let base = ''; // 我們寫的字前面原本的字
   let where = null;
   const wanted = new Map(); // 第幾句 → 最新的預覽（排隊的時候只做最新的）
+  const latest = new Map(); // 第幾句 → 最新的預覽（這句講完時補上還沒打的最後幾個字）
   const lost = new Map(); // 第幾句 → acted（使用者動了：準的字不寫）| unknown（看不出來：準的字照寫）
   let finalUpTo = 0; // 準的字回來（或不算）的最後一句：比它舊的預覽不再打
   let blockedTurn = 0; // 這句的預覽寫不進去（游標不在框裡…）：這句不再試
@@ -167,8 +194,11 @@ export function createDraftWriter({ rewrite, commands = () => false, log = () =>
     if (!isSpeech(piece) || onlyFiller(piece)) return;
     if (commands() && isExplicitCommand((open?.raw ?? '') + piece)) return;
     if (live.some((e) => e.turn > turn)) return; // 後面那句已經在打了，這句舊的預覽不用再改
-    const has = live.some((e) => e.turn === turn);
-    const next = has ? live.map((e) => (e.turn === turn ? { turn, text: piece } : e)) : [...live, { turn, text: piece }];
+    // 只往後加：框裡這句已經打的字不動，接上新預覽多出來的字
+    const typed = live.find((e) => e.turn === turn)?.text ?? '';
+    const grown = typed + extension(typed, piece);
+    if (grown === typed || !isSpeech(grown) || onlyFiller(grown)) return;
+    const next = typed ? live.map((e) => (e.turn === turn ? { turn, text: grown } : e)) : [...live, { turn, text: grown }];
     const result = await apply(joined(chain) + joined(next), 'preview');
     if (result.ok) {
       live = next;
@@ -197,9 +227,11 @@ export function createDraftWriter({ rewrite, commands = () => false, log = () =>
       await removeLive(turn);
       return { written: false, restart };
     }
-    // 這句的預覽已經在框裡、沒有少一截：留著預覽只補句尾標點，框裡的字等整理好才換（只換一次）
+    // 這句的預覽已經在框裡、沒有少一截：留著預覽，只接上還沒打的最後幾個字和句尾標點，框裡的字等整理好才換（只換一次）
     const shown = live.find((e) => e.turn === turn);
-    const kept = shown && covers(shown.text, sentence) ? shown.text : null;
+    const full = shown ? shown.text + extension(shown.text, latest.get(turn) ?? '', { hold: false }) : '';
+    for (const k of [...latest.keys()]) if (k <= turn) latest.delete(k);
+    const kept = shown && covers(full, sentence) ? full : null;
     open.unwritten += kept !== null ? kept + ending(piece) : piece;
     open.unwrittenRaw += piece;
     let result = await apply(joined(chain) + open.unwritten + joined(live.filter((e) => e.turn !== turn)), 'sentence');
@@ -264,6 +296,7 @@ export function createDraftWriter({ rewrite, commands = () => false, log = () =>
     // 回傳打完的時候（已經在排隊就不回，排著的那次會打最新的）
     preview(turn, text) {
       if (turn <= finalUpTo) return undefined;
+      latest.set(turn, livePiece(text));
       const queued = wanted.has(turn);
       wanted.set(turn, text);
       return queued ? undefined : serial(() => typePreview(turn));
@@ -277,6 +310,7 @@ export function createDraftWriter({ rewrite, commands = () => false, log = () =>
       finalUpTo = Math.max(finalUpTo, turn);
       return serial(async () => {
         lost.delete(turn);
+        latest.delete(turn);
         await removeLive(turn);
       });
     },

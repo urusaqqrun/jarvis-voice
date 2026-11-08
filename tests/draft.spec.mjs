@@ -244,28 +244,62 @@ test('草稿：寫和換排隊，一次做一件；寫的時候 busy', async () 
   assert.equal(value, '整理好了');
 });
 
-test('邊講邊打：預覽跟著打進框，只寫多出來的字；句尾標點先不打', async () => {
+test('邊講邊打：預覽跟著打進框，只接上多出來的字；句尾標點、最後一個字（還在變）先不打', async () => {
   const field = fakeField('前面的字');
   const drafts = writer(field);
   drafts.preview(1, '我覺得。');
   await idle(drafts);
-  assert.equal(field.value, '前面的字我覺得');
+  assert.equal(field.value, '前面的字我覺');
   assert.equal(drafts.typing(), true);
   drafts.preview(1, '我覺得這樣不錯。');
   await idle(drafts);
-  assert.equal(field.value, '前面的字我覺得這樣不錯');
-  assert.deepEqual(field.ops.at(-1), { expect: '我覺得', same: 3, text: '這樣不錯', why: 'preview' });
+  assert.equal(field.value, '前面的字我覺得這樣不');
+  assert.deepEqual(field.ops.at(-1), { expect: '我覺', same: 2, text: '得這樣不', why: 'preview' });
 });
 
-test('邊講邊打：預覽認錯改字，只換不一樣的部分', async () => {
+test('邊講邊打：最後一個字先不打，預覽改口（今天天器 → 今天天氣）就不會打錯', async () => {
   const field = fakeField();
   const drafts = writer(field);
   drafts.preview(1, '今天天器');
   await idle(drafts);
   drafts.preview(1, '今天天氣很好');
   await idle(drafts);
-  assert.equal(field.value, '今天天氣很好');
-  assert.deepEqual(field.ops.at(-1), { expect: '今天天器', same: 3, text: '氣很好', why: 'preview' });
+  assert.equal(field.value, '今天天氣很');
+  assert.deepEqual(field.ops.at(-1), { expect: '今天天', same: 3, text: '氣很', why: 'preview' });
+});
+
+test('邊講邊打：講話中框裡的字只往後加，不刪不改：預覽改口、多了標點都不重打，前面認錯的字等整理好一次換掉', async () => {
+  const field = fakeField();
+  const drafts = writer(field);
+  // 本機預覽每 0.5 秒整句重認：前面的字會改口、會多出逗號（11/08 一句 9 秒的話在框裡被反白重貼十幾次）
+  const previews = ['今天', '今天天器很', '今天天器很好我們', '今天天氣很好，我們去', '今天天氣很好，我們去公園走', '今天天氣很好，我們去公園走走吧'];
+  for (const text of previews) {
+    drafts.preview(1, text);
+    await idle(drafts);
+  }
+  const ops = field.ops.filter((o) => o.why === 'preview');
+  assert.ok(ops.length >= 4, JSON.stringify(ops));
+  for (const op of ops) assert.equal(op.same, op.expect.length, `只往後加：${JSON.stringify(op)}`);
+  assert.equal(field.value, '今天天器很好我們去公園走走');
+  assert.deepEqual(await drafts.add('今天天氣很好，我們去公園走走吧。', 1), { written: true, restart: false, kept: '今天天器很好我們去公園走走吧' });
+  assert.equal(field.ops.at(-1).same, field.ops.at(-1).expect.length);
+  assert.equal(field.value, '今天天器很好我們去公園走走吧。');
+  assert.equal(await drafts.settle(drafts.close(), '今天天氣很好，我們去公園走走吧。'), 'ok');
+  assert.equal(field.value, '今天天氣很好，我們去公園走走吧。');
+});
+
+test('邊講邊打：預覽整個對不起來（改口太多）這次就不加，等下一次', async () => {
+  const field = fakeField();
+  const drafts = writer(field);
+  drafts.preview(1, '我們明天開會');
+  await idle(drafts);
+  assert.equal(field.value, '我們明天開');
+  drafts.preview(1, '因為昨天下雨了');
+  await idle(drafts);
+  assert.equal(field.value, '我們明天開');
+  drafts.preview(1, '我們明天開會討論');
+  await idle(drafts);
+  assert.equal(field.value, '我們明天開會討');
 });
 
 test('邊講邊打：準的字回來不換掉預覽（只補句尾標點），整理好一次換掉；游標前原本的字一直是最早記下的', async () => {
@@ -275,7 +309,7 @@ test('邊講邊打：準的字回來不換掉預覽（只補句尾標點），�
   await idle(drafts);
   assert.deepEqual(await drafts.add('嗯，今天天氣。', 1), { written: true, restart: false, kept: '嗯今天天器' });
   assert.equal(field.value, '前面的字嗯今天天器。');
-  assert.deepEqual(field.ops.at(-1), { expect: '嗯今天天器', same: 5, text: '。', why: 'sentence' });
+  assert.deepEqual(field.ops.at(-1), { expect: '嗯今天天', same: 4, text: '器。', why: 'sentence' });
   const draft = drafts.close();
   assert.equal(draft.before, '前面的字');
   assert.equal(draft.text, '嗯今天天器。');
@@ -291,12 +325,12 @@ test('邊講邊打：上一句的準字回來時下一句正在打：順序不�
   drafts.preview(1, '第一句');
   drafts.preview(2, '第二句講到一');
   await idle(drafts);
-  assert.equal(field.value, '第一句第二句講到一');
+  assert.equal(field.value, '第一第二句講到');
   await drafts.add('第一句。', 1);
-  assert.equal(field.value, '第一句。第二句講到一');
+  assert.equal(field.value, '第一句。第二句講到');
   drafts.preview(2, '第二句講到一半');
   await idle(drafts);
-  assert.equal(field.value, '第一句。第二句講到一半');
+  assert.equal(field.value, '第一句。第二句講到一');
   await drafts.add('第二句講完。', 2);
   assert.equal(field.value, '第一句。第二句講到一半。');
   const draft = drafts.close();
@@ -313,7 +347,7 @@ test('邊講邊打：整理好的時候下一句正在打：下一句的字不�
   drafts.preview(2, '第二段');
   await idle(drafts);
   assert.equal(await drafts.settle(first, '第一段。'), 'ok');
-  assert.equal(field.value, '第一段。第二段');
+  assert.equal(field.value, '第一段。第二');
   await drafts.add('第二段。', 2);
   assert.equal(field.value, '第一段。第二段。');
 });
@@ -323,7 +357,7 @@ test('邊講邊打：這句不算（別人在講話、轉出來是空的）：�
   const drafts = writer(field);
   drafts.preview(1, '別人講的話');
   await idle(drafts);
-  assert.equal(field.value, '原本的字別人講的話');
+  assert.equal(field.value, '原本的字別人講的');
   await drafts.drop(1);
   assert.equal(field.value, '原本的字');
   assert.equal(drafts.typing(), false);
@@ -368,7 +402,7 @@ test('邊講邊打：講到一半按送出：這句後面不再打（不把送�
   assert.equal(field.value, '');
   drafts.preview(2, '下一句');
   await idle(drafts);
-  assert.equal(field.value, '下一句');
+  assert.equal(field.value, '下一');
 });
 
 test('邊講邊打：同一段前面的句子跟這句都送出了：整段重新開始', async () => {
@@ -390,7 +424,7 @@ test('邊講邊打：自己接著打字或換行：我們的字還在就不再�
   await idle(drafts);
   field.value += '\n';
   assert.deepEqual(await drafts.add('這句話。', 1), { written: false, restart: false, dropped: true });
-  assert.equal(field.value, '這句話\n');
+  assert.equal(field.value, '這句\n');
 });
 
 test('邊講邊打：看到字認錯自己動手改：框裡是他改的字，準的字不再寫（不會變成重複的字），也不會關掉邊講邊打', async () => {
@@ -406,7 +440,7 @@ test('邊講邊打：看到字認錯自己動手改：框裡是他改的字，�
   assert.deepEqual(notes, []);
   drafts.preview(2, '下一句還是邊講邊打');
   await idle(drafts);
-  assert.equal(field.value, '然後這個按鈕w下一句還是邊講邊打');
+  assert.equal(field.value, '然後這個按鈕w下一句還是邊講邊');
 });
 
 test('邊講邊打：沒有人碰但後面幾個字不一樣（貼上被別的程式蓋掉）：照框裡實際的字改回來，不重複', async () => {
@@ -451,7 +485,7 @@ test('邊講邊打：看不出來為什麼對不上（app 改了字的樣子）�
   t += LIVE_PAUSE_MS + 1;
   drafts.preview(3, '又會打了');
   await idle(drafts);
-  assert.equal(field.value, 'Hello Worldhello world again. 又會打了');
+  assert.equal(field.value, 'Hello Worldhello world again. 又會打');
 });
 
 test('邊講邊打：游標不在框裡：這句只試一次，字留給小框；準的字照原本整理好才寫', async () => {
@@ -477,15 +511,15 @@ test('邊講邊打：講到一半游標跑到按鈕：這句先不打，講完�
   drafts.preview(1, '講到一半離開');
   await idle(drafts);
   assert.equal(drafts.typing(), true);
-  assert.equal(field.value, '講到一半');
+  assert.equal(field.value, '講到一');
   field.down = false; // 對焦回來了
-  assert.deepEqual(await drafts.add('講到一半離開了。', 1), { written: true, restart: false });
-  assert.equal(field.value, '講到一半離開了。');
+  assert.deepEqual(await drafts.add('講到一半離開了。', 1), { written: true, restart: false, kept: '講到一半離開' });
+  assert.equal(field.value, '講到一半離開。');
   drafts.preview(2, '又講一句');
   await idle(drafts);
   field.down = true; // 回不去
   assert.deepEqual(await drafts.add('又講一句。', 2), { written: false, restart: true, dropped: true });
-  assert.equal(field.value, '講到一半離開了。又講一句');
+  assert.equal(field.value, '講到一半離開。又講一');
 });
 
 test('邊講邊打：游標換到別的輸入框（使用者換地方了）：框裡的字不再改，這句不再寫', async () => {
@@ -500,7 +534,7 @@ test('邊講邊打：游標換到別的輸入框（使用者換地方了）：�
   await idle(drafts);
   assert.equal(drafts.typing(), false);
   assert.deepEqual(await drafts.add('講到一半換框了。', 1), { written: false, restart: false, dropped: true });
-  assert.equal(field.value, '講到一半');
+  assert.equal(field.value, '講到一');
 });
 
 test('邊講邊打：排隊時只做最新的預覽；準的字回來之後舊的預覽不再打', async () => {
@@ -513,15 +547,14 @@ test('邊講邊打：排隊時只做最新的預覽；準的字回來之後舊�
       return field.rewrite(request);
     },
   });
-  drafts.preview(1, '第');
-  await new Promise((r) => setTimeout(r, 0));
   drafts.preview(1, '第一');
+  await new Promise((r) => setTimeout(r, 0));
   drafts.preview(1, '第一句');
   drafts.preview(1, '第一句話');
   release();
   await idle(drafts);
-  assert.equal(field.value, '第一句話');
-  assert.deepEqual(field.ops.filter((o) => o.why === 'preview').map((o) => o.text), ['第', '一句話']);
+  assert.equal(field.value, '第一句');
+  assert.deepEqual(field.ops.filter((o) => o.why === 'preview').map((o) => o.text), ['第', '一句']);
   const adding = drafts.add('第一句話。', 1);
   drafts.preview(1, '第一句話舊的預覽');
   await adding;
@@ -534,23 +567,24 @@ test('邊講邊打：上一句等不到準的字（轉寫失敗）：字留在�
   const drafts = writer(field);
   drafts.preview(1, '轉寫失敗的句子');
   await idle(drafts);
-  assert.deepEqual(await drafts.add('下一句。', 2), { written: true, restart: false, stale: '轉寫失敗的句子' });
-  assert.equal(field.value, '轉寫失敗的句子下一句。');
+  assert.deepEqual(await drafts.add('下一句。', 2), { written: true, restart: false, stale: '轉寫失敗的句' });
+  assert.equal(field.value, '轉寫失敗的句下一句。');
   const draft = drafts.close();
-  assert.equal(draft.text, '轉寫失敗的句子下一句。');
+  assert.equal(draft.text, '轉寫失敗的句下一句。');
   assert.equal(await drafts.settle(draft, '整理好了。'), 'ok');
   assert.equal(field.value, '整理好了。');
 });
 
-test('邊講邊打：不切在 emoji 中間', async () => {
+test('邊講邊打：不切在 emoji 中間（對位、最後一個字都用整個字算）', async () => {
   const field = fakeField();
   const drafts = writer(field);
-  drafts.preview(1, '好\u{1F600}');
+  drafts.preview(1, '好\u{1F600}啊');
   await idle(drafts);
-  drafts.preview(1, '好\u{1F601}');
+  assert.equal(field.value, '好\u{1F600}');
+  drafts.preview(1, '好\u{1F600}啊呀');
   await idle(drafts);
-  assert.equal(field.value, '好\u{1F601}');
-  assert.deepEqual(field.ops.at(-1), { expect: '好\u{1F600}', same: 1, text: '\u{1F601}', why: 'preview' });
+  assert.equal(field.value, '好\u{1F600}啊');
+  assert.deepEqual(field.ops.at(-1), { expect: '好\u{1F600}', same: 3, text: '啊', why: 'preview' });
 });
 
 test('兩段：預覽少一截（電腦卡住、預覽沒跟上）才先換成準的字，不讓字缺一塊等整理', async () => {
@@ -564,14 +598,14 @@ test('兩段：預覽少一截（電腦卡住、預覽沒跟上）才先換成�
   assert.equal(draft.text, draft.raw);
 });
 
-test('兩段：準的字句尾沒有標點：框裡的字完全不動，一次都不用寫', async () => {
+test('兩段：準的字回來只接上還沒打的最後一個字，前面的字不動；跟預覽一樣就不算留著預覽', async () => {
   const field = fakeField();
   const drafts = writer(field);
   drafts.preview(1, '好的');
   await idle(drafts);
-  const before = field.ops.length;
+  assert.equal(field.value, '好');
   assert.deepEqual(await drafts.add('好的', 1), { written: true, restart: false });
-  assert.equal(field.ops.length, before);
+  assert.deepEqual(field.ops.at(-1), { expect: '好', same: 1, text: '的', why: 'sentence' });
   assert.equal(field.value, '好的');
 });
 
@@ -583,7 +617,7 @@ test('兩段：英文預覽留著時補句尾標點和空白，下一句不會�
   assert.deepEqual(await drafts.add('Hello, world.', 1), { written: true, restart: false, kept: 'hello world' });
   drafts.preview(2, 'next one');
   await idle(drafts);
-  assert.equal(field.value, 'hello world. next one');
+  assert.equal(field.value, 'hello world. next ');
 });
 
 test('兩段：整理失敗換成準的原稿（draft.raw），預覽的錯字不會留著', async () => {
