@@ -374,10 +374,12 @@ export function speechBubble(input: {
   confirmedOnly?: boolean;
 }): { state: 'working' | 'hearing' | 'ignored'; text: string; speaker: '' | 'mine' | 'short' } | null;
 
-// ---- 字先進輸入框：邊講邊打、準的字換掉預覽、整理好再換掉（draft.mjs）----
+// ---- 字先進輸入框：邊講邊打，整理好一次換掉（預覽少一截才先換成準的字）（draft.mjs）----
 export interface Draft<W = unknown> {
-  /** 框裡這份草稿現在的字 */
+  /** 框裡這份草稿現在的字（可能是留著的預覽） */
   text: string;
+  /** 這份草稿準的字（AI 整理失敗時換成這個） */
+  raw: string;
   /** 寫之前游標前的字（給 AI 當上下文） */
   before: string;
   where: W | null;
@@ -400,8 +402,9 @@ export const LIVE_PAUSE_MS: number;
 export interface DraftWriter<W = unknown> {
   /** 這句講到一半認到的字，框裡跟著改 */
   preview(turn: number, text: string): void;
-  /** restart：這段前面的字不再算這段；dropped：這句不算（已經送出）；stale：等不到準的字、留在框裡的預覽，要併進這段 */
-  add(sentence: string, turn?: number): Promise<{ written: boolean; restart: boolean; dropped?: boolean; stale?: string }>;
+  /** restart：這段前面的字不再算這段；dropped：這句不算（已經送出）；stale：等不到準的字、留在框裡的預覽，要併進這段；
+   *  kept：框裡留著的這句預覽（準的字沒寫，等整理好一次換掉） */
+  add(sentence: string, turn?: number): Promise<{ written: boolean; restart: boolean; dropped?: boolean; stale?: string; kept?: string }>;
   /** 這句不算：把預覽拿掉 */
   drop(turn?: number): Promise<void>;
   close(): Draft<W> | null;

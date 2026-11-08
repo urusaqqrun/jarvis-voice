@@ -15,8 +15,8 @@
 //   - 字一回來就開始 AI 整理（游標不在輸入框時同時挑好要寫的框）；整理好時已經停了 1.2 秒就直接貼，
 //     又開口就作廢、等整段講完一起整理。
 //   - 轉寫、AI 整理每次同時送兩份，誰先回用誰。
-//   - 字先進輸入框（規則在核心 core/draft.mjs）：講話中就把本機預覽認到的字打進游標所在的輸入框（speed.live），講完一句換成準的轉寫（speed.draft），
-//     AI 整理好再把那段換掉；想送就直接送，不用等。已經送出、自己改過、游標移走、換了 app 就不再改。
+//   - 字先進輸入框（規則在核心 core/draft.mjs）：講話中就把本機預覽認到的字打進游標所在的輸入框（speed.live），AI 整理好再把那段換掉，
+//     框裡的字只換一次（預覽少一截或沒有預覽的句子，準的轉寫回來先寫，speed.draft）；想送就直接送，不用等。已經送出、自己改過、游標移走、換了 app 就不再改。
 //     游標不在輸入框、選取了字、開頭講「指令」時不先寫，照原本整理好才寫。
 //   - 游標旁的小框（app/ui.js）：字已經在框裡就只寫狀態（聽著、整理中、已整理）；游標不在框裡才寫聽到的字（本機 SenseVoice 預覽）。指令、出錯照舊。
 //   每次貼上 log 記一行「速度：講完到貼上 X 秒（字回來、整理好、貼上各花多少）」（只記 log，小框不顯示秒數）。
@@ -728,12 +728,13 @@ const segmenter = createSegmenter({
   log,
 });
 
-// 轉好一句：換掉框裡這句的預覽、接進草稿（speed.draft，規則在核心 core/draft.mjs），再併進這一段。
+// 轉好一句：接進草稿（speed.draft，規則在核心 core/draft.mjs；框裡已經有這句的預覽就留著，整理好一次換掉），再併進這一段。
 // 這段前面的字已經不再改（送出了、自己改了、游標移走了）：那些字不算這段，從這句重新開始；這句也已經送出就不算
 async function addSentence(text, heard, turn) {
   if (config.speed.draft) {
-    const { written, restart, dropped, stale } = await drafts.add(text, turn);
-    if (written) log(`這句進框：${text}${liveWrites ? `（講話中先打了 ${liveWrites} 次）` : ''}`);
+    const { written, restart, dropped, stale, kept } = await drafts.add(text, turn);
+    if (kept !== undefined) log(`這句留著預覽，整理好再換：${kept}（準的字：${text}；講話中先打了 ${liveWrites} 次）`);
+    else if (written) log(`這句進框：${text}${liveWrites ? `（講話中先打了 ${liveWrites} 次）` : ''}`);
     liveWrites = 0;
     if (restart) segmenter.clear();
     if (stale) segmenter.add(stale, heard);
@@ -767,7 +768,7 @@ let outputBusy = false;
 let askedAccessibility = false;
 let lastInserted = null; // { pid, text：實際貼上的字, raw：原稿, ai：是不是 AI 整理過 }
 const rememberedTargets = new Map(); // `${pid}:${視窗標題}` → 上次寫進去的輸入框
-// 字先進輸入框：邊講邊打、準的字換掉預覽、整理好再換掉（規則在核心 core/draft.mjs），這裡接 AX 小幫手
+// 字先進輸入框：邊講邊打、整理好一次換掉（規則在核心 core/draft.mjs），這裡接 AX 小幫手
 let liveWrites = 0; // 這句講話中打進框幾次（記 log 用）
 const drafts = createDraftWriter({
   commands: () => commandsOn(),
@@ -1134,8 +1135,8 @@ async function deliverDraft(item, front) {
     return '';
   }
   const result = plan.result ?? null;
-  // 沒有整理的結果（失敗、Jev 說不是指令）：草稿就是原稿，留著
-  const text = result ? withSpacing(plan.text) : draft.text;
+  // 沒有整理的結果（失敗、Jev 說不是指令）：換成原稿（框裡留著預覽的句子換成準的字；本來就是原稿就不用換）
+  const text = result ? withSpacing(plan.text) : draft.raw;
   writeLast(plan.text);
   const startAt = Date.now();
   const outcome = await drafts.settle(draft, text);

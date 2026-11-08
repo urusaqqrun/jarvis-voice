@@ -1,4 +1,4 @@
-// 字先進輸入框（core/draft.mjs）：邊講邊打、準的字換掉預覽、整理好再換掉；已經送出、自己改過就不動。
+// 字先進輸入框（core/draft.mjs）：邊講邊打、整理好一次換掉（預覽少一截才先換成準的字）；已經送出、自己改過就不動。
 // 用一個假的輸入框跑規則，真的輸入框在 ax.spec.mjs。
 
 import assert from 'node:assert/strict';
@@ -268,16 +268,18 @@ test('邊講邊打：預覽認錯改字，只換不一樣的部分', async () =>
   assert.deepEqual(field.ops.at(-1), { expect: '今天天器', same: 3, text: '氣很好', why: 'preview' });
 });
 
-test('邊講邊打：準的字回來換掉預覽；整理好再換；游標前原本的字一直是最早記下的', async () => {
+test('邊講邊打：準的字回來不換掉預覽（只補句尾標點），整理好一次換掉；游標前原本的字一直是最早記下的', async () => {
   const field = fakeField('前面的字');
   const drafts = writer(field);
   drafts.preview(1, '嗯今天天器');
   await idle(drafts);
-  assert.deepEqual(await drafts.add('嗯，今天天氣。', 1), { written: true, restart: false });
-  assert.equal(field.value, '前面的字嗯，今天天氣。');
+  assert.deepEqual(await drafts.add('嗯，今天天氣。', 1), { written: true, restart: false, kept: '嗯今天天器' });
+  assert.equal(field.value, '前面的字嗯今天天器。');
+  assert.deepEqual(field.ops.at(-1), { expect: '嗯今天天器', same: 5, text: '。', why: 'sentence' });
   const draft = drafts.close();
   assert.equal(draft.before, '前面的字');
-  assert.equal(draft.text, '嗯，今天天氣。');
+  assert.equal(draft.text, '嗯今天天器。');
+  assert.equal(draft.raw, '嗯，今天天氣。');
   assert.equal(await drafts.settle(draft, '今天天氣。'), 'ok');
   assert.equal(field.value, '前面的字今天天氣。');
   assert.equal(drafts.typing(), false);
@@ -296,8 +298,9 @@ test('邊講邊打：上一句的準字回來時下一句正在打：順序不�
   await idle(drafts);
   assert.equal(field.value, '第一句。第二句講到一半');
   await drafts.add('第二句講完。', 2);
-  assert.equal(field.value, '第一句。第二句講完。');
+  assert.equal(field.value, '第一句。第二句講到一半。');
   const draft = drafts.close();
+  assert.equal(draft.raw, '第一句。第二句講完。');
   assert.equal(await drafts.settle(draft, '第一句，第二句講完。'), 'ok');
   assert.equal(field.value, '第一句，第二句講完。');
 });
@@ -412,8 +415,8 @@ test('邊講邊打：沒有人碰但後面幾個字不一樣（貼上被別的�
   drafts.preview(1, '然後這個按鈕切邊呢');
   await idle(drafts);
   field.value = '前面的字然後這個按鈕w';
-  assert.deepEqual(await drafts.add('然後這個按鈕切邊了。', 1), { written: true, restart: false });
-  assert.equal(field.value, '前面的字然後這個按鈕切邊了。');
+  assert.deepEqual(await drafts.add('然後這個按鈕切邊了。', 1), { written: true, restart: false, kept: '然後這個按鈕切邊呢' });
+  assert.equal(field.value, '前面的字然後這個按鈕切邊呢。');
   assert.equal(await drafts.settle(drafts.close(), '這個按鈕切邊了。'), 'ok');
   assert.equal(field.value, '前面的字這個按鈕切邊了。');
 });
@@ -548,4 +551,49 @@ test('邊講邊打：不切在 emoji 中間', async () => {
   await idle(drafts);
   assert.equal(field.value, '好\u{1F601}');
   assert.deepEqual(field.ops.at(-1), { expect: '好\u{1F600}', same: 1, text: '\u{1F601}', why: 'preview' });
+});
+
+test('兩段：預覽少一截（電腦卡住、預覽沒跟上）才先換成準的字，不讓字缺一塊等整理', async () => {
+  const field = fakeField();
+  const drafts = writer(field);
+  drafts.preview(1, '先不用上');
+  await idle(drafts);
+  assert.deepEqual(await drafts.add('先不用上，先不用上 PRD，我們只要先待部署就好了。', 1), { written: true, restart: false });
+  assert.equal(field.value, '先不用上，先不用上 PRD，我們只要先待部署就好了。');
+  const draft = drafts.close();
+  assert.equal(draft.text, draft.raw);
+});
+
+test('兩段：準的字句尾沒有標點：框裡的字完全不動，一次都不用寫', async () => {
+  const field = fakeField();
+  const drafts = writer(field);
+  drafts.preview(1, '好的');
+  await idle(drafts);
+  const before = field.ops.length;
+  assert.deepEqual(await drafts.add('好的', 1), { written: true, restart: false });
+  assert.equal(field.ops.length, before);
+  assert.equal(field.value, '好的');
+});
+
+test('兩段：英文預覽留著時補句尾標點和空白，下一句不會黏在一起', async () => {
+  const field = fakeField();
+  const drafts = writer(field);
+  drafts.preview(1, 'hello world');
+  await idle(drafts);
+  assert.deepEqual(await drafts.add('Hello, world.', 1), { written: true, restart: false, kept: 'hello world' });
+  drafts.preview(2, 'next one');
+  await idle(drafts);
+  assert.equal(field.value, 'hello world. next one');
+});
+
+test('兩段：整理失敗換成準的原稿（draft.raw），預覽的錯字不會留著', async () => {
+  const field = fakeField();
+  const drafts = writer(field);
+  drafts.preview(1, '上 PRD 吧');
+  await idle(drafts);
+  await drafts.add('上 prod 吧。', 1);
+  const draft = drafts.close();
+  assert.equal(field.value, '上 PRD 吧。');
+  assert.equal(await drafts.settle(draft, draft.raw), 'ok');
+  assert.equal(field.value, '上 prod 吧。');
 });

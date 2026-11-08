@@ -1,7 +1,9 @@
-// JarvisVoice 核心：字先進輸入框。講話中就把本機預覽認到的字打進游標所在的輸入框（邊講邊打），講完一句換成準的轉寫，
-// 一段講完換成 AI 整理後的字。想送就直接送，不用等。
+// JarvisVoice 核心：字先進輸入框。講話中就把本機預覽認到的字打進游標所在的輸入框（邊講邊打），一段講完換成 AI 整理後的字。
+// 框裡的字只換一次：準的轉寫回來不換掉預覽（只補句尾標點），準的字給 AI 整理用；預覽少一截（電腦卡住、預覽沒跟上）才換成準的字。
+// 沒有預覽的句子（講太短、聲紋還不夠像你）準的字回來就先寫。想送就直接送，不用等。
 //   preview(第幾句, 字)：這句講到一半認到的字（每次都是這句從頭到現在），框裡跟著改。
-//   add(一句, 第幾句)：這句準的字回來了，換掉這句的預覽；同一段的句子接成一份草稿。
+//   add(一句, 第幾句)：這句準的字回來了，接進這段的草稿（預覽留著或換成準的字，見上面）；同一段的句子接成一份草稿。
+//     草稿的 text 是框裡實際的字，raw 是準的字（AI 整理失敗時換成 raw）。
 //   drop(第幾句)：這句不算（別人在講話、轉出來沒有字）：把預覽拿掉。
 //   close()：這段講完了，交出這段的草稿（沒寫進去就是 null，照原本整理好才寫）。
 //   settle(草稿, 字)：整理好了，把草稿換成這些字（空字串＝拿掉）。
@@ -27,7 +29,13 @@ export const LIVE_PAUSE_MS = 5 * 60 * 1000;
 const HANDS_ON_SECONDS = 3; // 使用者這麼久內碰過鍵盤滑鼠：對不上就是他在改
 
 // 預覽的句尾標點先不打：講下去就要改掉，準的字回來會補上
-const livePiece = (text) => String(text ?? '').trim().replace(/[\s。．.!！?？,，、；;：:]+$/u, '');
+const TRAILING = /[\s。．.!！?？,，、；;：:]+$/u;
+const livePiece = (text) => String(text ?? '').trim().replace(TRAILING, '');
+const ending = (text) => text.match(TRAILING)?.[0] ?? '';
+
+// 預覽有沒有涵蓋整句：不算標點、空白，字數到準的字的七成。電腦卡住時預覽會少一截，這時才換成準的字，不然字缺一塊要等整理才補上
+const bare = (text) => String(text ?? '').toLowerCase().replace(/[\s\p{P}\p{S}]/gu, '');
+const covers = (preview, sentence) => bare(preview).length >= bare(sentence).length * 0.7;
 
 // 兩段字開頭一樣的長度（不切在 emoji 這類兩格的字中間）
 function samePrefix(a, b) {
@@ -55,7 +63,7 @@ function drifted(before, expect) {
 export function createDraftWriter({ rewrite, commands = () => false, log = () => {}, now = () => Date.now() }) {
   let chain = []; // 游標前面還沒定案的草稿（一段一份），照框裡的順序
   let live = []; // 接在草稿後面、還在講（或還在轉）的那幾句的預覽：[{ turn, text }]
-  let open = null; // 還沒講完的這段：{ raw：轉好的字, unwritten：還沒進框的字, draft：這段的草稿 }
+  let open = null; // 還沒講完的這段：{ raw：轉好的字, unwritten：還沒進框的字, unwrittenRaw：那些字準的樣子, draft：這段的草稿 }
   let base = ''; // 我們寫的字前面原本的字
   let where = null;
   const wanted = new Map(); // 第幾句 → 最新的預覽（排隊的時候只做最新的）
@@ -124,7 +132,7 @@ export function createDraftWriter({ rewrite, commands = () => false, log = () =>
 
   const ensureDraft = () => {
     if (open.draft) return open.draft;
-    open.draft = { text: '', before: (base + joined(chain)).slice(-1500), where, gone: false, writtenAt: 0 };
+    open.draft = { text: '', raw: '', before: (base + joined(chain)).slice(-1500), where, gone: false, writtenAt: 0 };
     chain.push(open.draft);
     return open.draft;
   };
@@ -133,9 +141,11 @@ export function createDraftWriter({ rewrite, commands = () => false, log = () =>
   function keepStale(turn) {
     const stale = live.filter((e) => e.turn < turn);
     if (!stale.length) return '';
-    open ??= { raw: '', unwritten: '', draft: null };
+    open ??= { raw: '', unwritten: '', unwrittenRaw: '', draft: null };
     const text = joined(stale);
-    ensureDraft().text += text;
+    const draft = ensureDraft();
+    draft.text += text;
+    draft.raw += text;
     open.raw += text;
     live = live.filter((e) => e.turn >= turn);
     return text;
@@ -169,7 +179,8 @@ export function createDraftWriter({ rewrite, commands = () => false, log = () =>
     else blockedTurn = turn;
   }
 
-  // 回傳 { written：這句進框了, restart：這段前面的字不再算這段（App 要把它們從這段拿掉）, dropped：這句不算（已經送出） }
+  // 回傳 { written：這句進框了, restart：這段前面的字不再算這段（App 要把它們從這段拿掉）, dropped：這句不算（已經送出），
+  //   kept：框裡留著的這句預覽（準的字沒寫，等整理好一次換掉） }
   async function writeSentence(sentence, turn) {
     const piece = withSpacing(sentence);
     const state = lost.get(turn);
@@ -180,25 +191,31 @@ export function createDraftWriter({ rewrite, commands = () => false, log = () =>
       restart = true;
     }
     if (state === 'acted') return { written: false, restart, dropped: true };
-    open ??= { raw: '', unwritten: '', draft: null };
+    open ??= { raw: '', unwritten: '', unwrittenRaw: '', draft: null };
     open.raw += piece;
     if ((commands() && isExplicitCommand(open.raw)) || onlyFiller(sentence)) {
       await removeLive(turn);
       return { written: false, restart };
     }
-    open.unwritten += piece;
-    const typed = live.some((e) => e.turn === turn);
+    // 這句的預覽已經在框裡、沒有少一截：留著預覽只補句尾標點，框裡的字等整理好才換（只換一次）
+    const shown = live.find((e) => e.turn === turn);
+    const kept = shown && covers(shown.text, sentence) ? shown.text : null;
+    open.unwritten += kept !== null ? kept + ending(piece) : piece;
+    open.unwrittenRaw += piece;
     let result = await apply(joined(chain) + open.unwritten + joined(live.filter((e) => e.turn !== turn)), 'sentence');
     if (!result.ok) {
       const acted = letGo(result);
+      // 框裡的預覽不再算我們的：之後要寫就寫準的字
+      open.unwritten = open.unwrittenRaw;
       if (open.draft) {
-        open = { raw: piece, unwritten: piece, draft: null };
+        open = { raw: piece, unwritten: piece, unwrittenRaw: piece, draft: null };
         restart = true;
       }
       // 這句的預覽已經在框裡，使用者動了（送出了）：這句就是他要的，準的字不再寫
-      if (typed && acted) {
+      if (shown && acted) {
         open.raw = open.raw.slice(0, -piece.length);
         open.unwritten = open.unwritten.slice(0, -piece.length);
+        open.unwrittenRaw = open.unwritten;
         if (!open.raw) open = null;
         return { written: false, restart, dropped: true };
       }
@@ -209,10 +226,13 @@ export function createDraftWriter({ rewrite, commands = () => false, log = () =>
     }
     live = live.filter((e) => e.turn !== turn);
     const draft = ensureDraft();
+    const keptNow = open.unwritten !== open.unwrittenRaw;
     draft.text += open.unwritten;
+    draft.raw += open.unwrittenRaw;
     draft.writtenAt = now();
     open.unwritten = '';
-    return { written: true, restart };
+    open.unwrittenRaw = '';
+    return keptNow ? { written: true, restart, kept } : { written: true, restart };
   }
 
   async function addSentence(sentence, turn) {
