@@ -10,7 +10,8 @@ ObjC.import('ApplicationServices');
 ObjC.import('ServiceManagement');
 
 const OB_W = 560;
-const OB_H = 380;
+const OB_H = 352;
+const OB_STEPS = 5; // 有編號的頁：麥克風、輔助使用、模型、試講、AI 整理（歡迎、完成不算）
 const OB_ORDER = ['welcome', 'mic', 'ax', 'model', 'try', 'ai', 'done'];
 let obWindow = null;
 let obStep = '';
@@ -59,56 +60,62 @@ function setLoginItem(on) {
   } catch (err) { uiLog(`登入時自動打開設定失敗：${err}`); }
 }
 
-// ── 每一頁的字 ──
+// ── 每一頁的字：step 是第幾步；busy 狀態列前面轉圈；ok、error 狀態列變綠、變紅 ──
 function obCopy(step) {
   switch (step) {
     case 'welcome': return {
       title: t('講話，就打進你正在用的 app', 'Talk, and it types into the app you’re using'),
-      body: t('JarvisVoice 開著就在聽。在 Claude、ChatGPT、瀏覽器、LINE、備忘錄裡直接講，講完的話會自己打進游標所在的輸入框，不用按任何按鈕。\n\n接下來給兩個權限、講一句試試，大約一分鐘。',
+      body: t('JarvisVoice 開著就在聽。在 Claude、ChatGPT、瀏覽器、LINE、備忘錄裡直接講，講完的話會自己打進游標所在的輸入框，不用按任何按鈕。\n\n接下來開兩個權限、講一句試試，大約一分鐘。',
         'JarvisVoice listens while it’s running. Just talk in Claude, ChatGPT, your browser, Notes or any app, and what you say is typed into the text field where your cursor is. No button to press.\n\nNext: two permissions and a quick test. It takes about a minute.'),
       primary: t('開始', 'Get Started'),
     };
     case 'mic': return micStatus() === 2 ? {
-      title: t('允許使用麥克風', 'Allow the microphone'),
-      body: t('麥克風被關掉了。到「系統設定 → 隱私權與安全性 → 麥克風」把 JarvisVoice 打開，打開後這裡會自己往下。',
+      step: 1, title: t('允許使用麥克風', 'Allow the microphone'),
+      body: t('麥克風被關掉了。到「系統設定 → 隱私權與安全性 → 麥克風」把 JarvisVoice 打開，開好之後，這個視窗會自動跳到下一步。',
         'The microphone is turned off for JarvisVoice. Turn it on in System Settings → Privacy & Security → Microphone, and this window moves on by itself.'),
       primary: t('打開系統設定', 'Open System Settings'), secondary: t('略過', 'Skip'),
     } : {
-      title: t('允許使用麥克風', 'Allow the microphone'),
-      body: t('JarvisVoice 要聽你講話。按下面的按鈕，系統詢問時按「好」。\n\n用本機辨識時，聲音不會離開這台 Mac。',
-        'JarvisVoice needs to hear you. Click the button below and choose OK when macOS asks.\n\nWith on-device transcription, your audio never leaves this Mac.'),
+      step: 1, title: t('允許使用麥克風', 'Allow the microphone'),
+      body: t('JarvisVoice 要聽你講話。按下面的按鈕，系統詢問時選允許。\n\n用本機辨識時，聲音不會離開這台 Mac。',
+        'JarvisVoice needs to hear you. Click the button below and allow access when macOS asks.\n\nWith on-device transcription, your audio never leaves this Mac.'),
       primary: t('允許麥克風', 'Allow Microphone'), secondary: t('略過', 'Skip'),
-      status: obMicAsked ? t('等你在系統的詢問視窗按「好」…', 'Waiting for you to choose OK in the macOS prompt…') : '',
+      status: obMicAsked ? t('等你在系統視窗按允許…', 'Waiting for you to allow access in the macOS prompt…') : '', busy: obMicAsked,
     };
     case 'ax': return {
-      title: t('允許 JarvisVoice 打字', 'Let JarvisVoice type for you'),
-      body: t('要把字打進別的 app，macOS 需要你在「輔助使用」打開 JarvisVoice。\n\n按下面的按鈕，在打開的設定裡把 JarvisVoice 的開關打開。打開之後這裡會自己往下。',
-        'To type into other apps, macOS needs you to turn on JarvisVoice under Accessibility.\n\nClick the button below and turn on the switch next to JarvisVoice. This window moves on by itself once it’s on.'),
+      step: 2, title: t('允許 JarvisVoice 打字', 'Let JarvisVoice type for you'),
+      body: t('要把字打進別的 app，macOS 需要你在「輔助使用」打開 JarvisVoice。\n\n按下面的按鈕，在打開的設定裡把 JarvisVoice 的開關打開，開好之後，這個視窗會自動跳到下一步。清單裡沒有 JarvisVoice？按下方的＋把它加進來。',
+        'To type into other apps, macOS needs you to turn on JarvisVoice under Accessibility.\n\nClick the button below and turn on the switch next to JarvisVoice. This window moves on by itself once it’s on. Don’t see JarvisVoice? Click + and add it from Applications.'),
       primary: t('打開輔助使用設定', 'Open Accessibility Settings'), secondary: t('略過', 'Skip'),
-      status: obAxAsked ? t('等你打開 JarvisVoice 的開關…', 'Waiting for the JarvisVoice switch to be turned on…') : '',
+      status: obAxAsked ? t('等你打開 JarvisVoice 的開關…', 'Waiting for the JarvisVoice switch to be turned on…') : '', busy: obAxAsked,
     };
-    case 'model': return {
-      title: t('下載本機辨識模型', 'Downloading the on-device model'),
-      body: t('本機辨識免費，聲音不離開這台 Mac。模型約 180 MB，只要下載一次。',
-        'On-device transcription is free and keeps your audio on this Mac. The model is about 180 MB and downloads once.'),
-      primary: S().models.state === 'error' ? t('再試一次', 'Try Again') : '', secondary: t('略過', 'Skip'), status: obModelText(), bar: true,
-    };
+    case 'model': {
+      const failed = S().models.state === 'error';
+      return {
+        step: 3, title: t('下載本機辨識模型', 'Downloading the on-device model'),
+        body: t('本機辨識免費，聲音不離開這台 Mac。模型共約 180 MB，只要下載一次。',
+          'On-device transcription is free and keeps your audio on this Mac. The models are about 180 MB in total and download once.'),
+        primary: failed ? t('再試一次', 'Try Again') : t('在背景下載，先繼續', 'Continue in Background'),
+        secondary: failed ? t('先略過', 'Skip for Now') : '',
+        status: obModelText(), bar: !failed, busy: !failed, error: failed,
+      };
+    }
     case 'try': return {
-      title: t('講一句試試', 'Say something'),
+      step: 4, title: t('講一句試試', 'Say something'),
       body: t('直接講一句，例如「明天下午三點開會」。講完停一下，字就會打進下面的框。',
-        'Just say a sentence, like “Let’s meet at three tomorrow.” Pause when you’re done and the words appear in the box below.'),
+        'Just say a sentence, like “Let’s meet at three tomorrow.” Pause when you’re done, and the words will appear in the box below.'),
       primary: t('下一步', 'Next'), secondary: t('略過', 'Skip'), status: obTryText(), practice: true,
+      busy: !obTried() && S().view.state === 'listening', ok: obTried(),
     };
     case 'ai': return {
-      title: t('要 AI 幫你整理嗎？（選用）', 'Want AI cleanup? (optional)'),
-      body: t('AI 整理會拿掉「嗯、那個」和講錯改口，加上標點、排成條列，名字照畫面上的寫法寫對。\n\n用你自己的 OpenAI、DeepSeek 或 Claude 的 key，一天講 1 小時，一個月不到 1 美元。之後也可以從選單列的圖示設定。',
-        'AI cleanup removes “um”s and false starts, adds punctuation and lists, and spells names the way they appear on screen.\n\nIt uses your own OpenAI, DeepSeek or Claude key: under US$1 a month at an hour a day. You can also set it up later from the menu bar icon.'),
-      primary: t('設定 key…', 'Set Up a Key…'), secondary: t('先不用', 'Not Now'),
+      step: 5, title: t('要 AI 幫你整理嗎？（選用）', 'Want AI cleanup? (optional)'),
+      body: t('AI 整理會拿掉「嗯、那個」和講錯改口，加上標點、排成條列，人名和專有名詞照畫面上的寫法打對。\n\n要用你自己的 OpenAI、DeepSeek 或 Claude 的 API key，一天講 1 小時，一個月不到 1 美元。之後也可以從選單列的圖示設定。',
+        'AI cleanup removes ums and false starts, adds punctuation and lists, and spells names and terms the way they appear on screen.\n\nIt uses your own OpenAI, DeepSeek or Claude API key: under US$1 a month at an hour a day. You can also set it up later from the menu bar icon.'),
+      primary: t('先不用', 'Not Now'), secondary: t('設定 API key…', 'Set Up API Key…'),
     };
     default: return {
       title: t('好了，去試試看', 'You’re all set'),
-      body: t('打開 Claude、ChatGPT 或任何 app，點進輸入框直接講。\n\n選單列的 JarvisVoice 圖示可以暫停收音、換轉寫方式、設定 AI 整理。',
-        'Open Claude, ChatGPT or any app, click into a text field and just talk.\n\nUse the JarvisVoice icon in the menu bar to pause listening, change transcription or set up AI cleanup.'),
+      body: t('打開 Claude、ChatGPT 或任何 app，點進輸入框直接講。\n\n螢幕右上角選單列的 {icon} 就是 JarvisVoice：可以暫停收音、切換辨識方式、設定 AI 整理。',
+        'Open Claude, ChatGPT or any app, click into a text field and just talk.\n\nThe {icon} in the menu bar at the top right of your screen is JarvisVoice: use it to pause listening, switch transcription or set up AI cleanup.'),
       primary: t('完成', 'Done'), check: !!BUILD.bundled,
     };
   }
@@ -118,11 +125,12 @@ function obModelText() {
   const { models } = S();
   if (models.state === 'error') return t(`下載失敗：${models.message}`, `Download failed: ${models.message}`);
   if (models.state === 'done') return t('好了', 'Done');
-  const name = models.model === 'speaker' ? t('聲紋模型', 'Voice model') : t('辨識模型', 'Speech model');
   if (!models.total) return t('準備下載…', 'Starting the download…');
+  const pct = Math.floor((models.done / models.total) * 100);
   const mb = (n) => (n / 1e6).toFixed(0);
-  return t(`${name} ${Math.floor((models.done / models.total) * 100)}%（${mb(models.done)} / ${mb(models.total)} MB）`,
-    `${name} ${Math.floor((models.done / models.total) * 100)}% (${mb(models.done)} / ${mb(models.total)} MB)`);
+  return models.model === 'speaker'
+    ? t(`下載聲紋模型：${pct}%（${mb(models.done)} / ${mb(models.total)} MB）`, `Downloading the voice model: ${pct}% (${mb(models.done)} / ${mb(models.total)} MB)`)
+    : t(`下載辨識模型：${pct}%（${mb(models.done)} / ${mb(models.total)} MB）`, `Downloading the speech model: ${pct}% (${mb(models.done)} / ${mb(models.total)} MB)`);
 }
 
 const obTried = () => !!ob.practice && ObjC.unwrap(ob.practice.string).trim().length > 0;
@@ -137,14 +145,41 @@ function obTryText() {
   if (view.state !== 'listening') return t('啟動中…', 'Starting…');
   if (working) return t('辨識中…', 'Transcribing…');
   if (hearing) return t('聽到了…', 'Hearing you…');
-  return t('在聽，直接講。', 'Listening. Go ahead and talk.');
+  return t('正在聽，直接講就好…', 'Listening… go ahead and talk.');
 }
 
 // ── 畫面 ──
+// 版面：左右邊距 40；標誌、標題、內文由上往下排，進度條、試講框、勾選框、狀態排在內文下面，
+// 按鈕右下、右緣對齊內容（520），第幾步在左下
+const OB_LEFT = 40;
+const OB_WIDTH = OB_W - 80;
+
 function obLabel(size, weight, wrap) {
   const label = wrap ? $.NSTextField.wrappingLabelWithString('') : $.NSTextField.labelWithString('');
   label.setFont(weight ? $.NSFont.systemFontOfSizeWeight(size, weight) : $.NSFont.systemFontOfSize(size));
   return label;
+}
+
+const obDark = () => /Dark/.test(ObjC.unwrap(obWindow.effectiveAppearance.name));
+
+// 內文：{icon} 換成選單列的 JarvisVoice 標誌（陌生人不知道選單列的圖示長什麼樣子）
+function obSetBody(text) {
+  if (!text.includes('{icon}')) { ob.body.setStringValue(text); return; }
+  // JXA 叫不到 NSAttributedString 的 initWithString（class cluster）：先接字和圖示，最後整段套字型與顏色
+  const out = $.NSMutableAttributedString.alloc.init;
+  text.split('{icon}').forEach((part, i) => {
+    if (i) {
+      const mark = $.NSTextAttachment.alloc.init;
+      const image = brandImage(0.9, obDark() ? $.NSColor.whiteColor : $.NSColor.blackColor);
+      mark.setImage(image);
+      mark.setBounds($.NSMakeRect(0, -3, image.size.width, image.size.height));
+      out.appendAttributedString($.NSAttributedString.attributedStringWithAttachment(mark));
+    }
+    out.replaceCharactersInRangeWithString($.NSMakeRange(Number(out.length), 0), $(part));
+  });
+  out.addAttributesRange($.NSDictionary.dictionaryWithObjectsForKeys($([$.NSFont.systemFontOfSize(14), $.NSColor.secondaryLabelColor]),
+    $([$.NSFontAttributeName, $.NSForegroundColorAttributeName])), $.NSMakeRange(0, Number(out.length)));
+  ob.body.setAttributedStringValue(out);
 }
 
 function obBuild() {
@@ -153,22 +188,26 @@ function obBuild() {
   win.setReleasedWhenClosed(false);
   win.setDelegate(obController);
   const root = win.contentView;
-  ob.icon = $.NSImageView.alloc.initWithFrame($.NSMakeRect(36, OB_H - 86, 60, 54));
-  ob.icon.setImage(brandImage(3));
+  ob.icon = $.NSImageView.alloc.initWithFrame($.NSMakeRect(OB_LEFT - 2, OB_H - 28 - 40, 44, 40));
+  ob.icon.setImage(brandImage(2.2));
   ob.icon.setContentTintColor($.NSColor.labelColor);
   ob.title = obLabel(22, 0.4, false);
   ob.body = obLabel(14, 0, true);
   ob.body.setTextColor($.NSColor.secondaryLabelColor);
-  ob.bar = $.NSProgressIndicator.alloc.initWithFrame($.NSMakeRect(40, 0, OB_W - 80, 12));
+  ob.bar = $.NSProgressIndicator.alloc.initWithFrame($.NSMakeRect(OB_LEFT, 0, OB_WIDTH, 12));
   ob.bar.setStyle(0);
   ob.bar.setIndeterminate(false);
   ob.bar.setMinValue(0);
   ob.bar.setMaxValue(1);
+  ob.spinner = $.NSProgressIndicator.alloc.initWithFrame($.NSMakeRect(OB_LEFT, 0, 16, 16));
+  ob.spinner.setStyle(1);
+  ob.spinner.setControlSize(1);
+  ob.spinner.setDisplayedWhenStopped(false);
   ob.status = obLabel(13, 0, true);
-  ob.scroll = $.NSScrollView.alloc.initWithFrame($.NSMakeRect(40, 0, OB_W - 80, 76));
+  ob.scroll = $.NSScrollView.alloc.initWithFrame($.NSMakeRect(OB_LEFT, 0, OB_WIDTH, 70));
   ob.scroll.setBorderType(2);
   ob.scroll.setHasVerticalScroller(true);
-  ob.practice = $.NSTextView.alloc.initWithFrame($.NSMakeRect(0, 0, OB_W - 84, 72));
+  ob.practice = $.NSTextView.alloc.initWithFrame($.NSMakeRect(0, 0, OB_WIDTH - 4, 66));
   ob.practice.setRichText(false);
   ob.practice.setFont($.NSFont.systemFontOfSize(15));
   ob.practice.setTextContainerInset($.NSMakeSize(6, 6));
@@ -176,50 +215,62 @@ function obBuild() {
   ob.scroll.setDocumentView(ob.practice);
   ob.check = $.NSButton.checkboxWithTitleTargetAction(t('登入 Mac 時自動打開 JarvisVoice', 'Open JarvisVoice when you log in'), obController, null);
   ob.check.setState(1);
+  ob.steps = obLabel(13, 0, false);
+  ob.steps.setTextColor($.NSColor.secondaryLabelColor);
   ob.primary = $.NSButton.buttonWithTitleTargetAction('', obController, 'obPrimary:');
   ob.primary.setKeyEquivalent('\r');
   ob.secondary = $.NSButton.buttonWithTitleTargetAction('', obController, 'obSecondary:');
-  for (const key of ['icon', 'title', 'body', 'bar', 'status', 'scroll', 'check', 'primary', 'secondary']) root.addSubview(ob[key]);
+  for (const key of ['icon', 'title', 'body', 'bar', 'spinner', 'status', 'scroll', 'check', 'steps', 'primary', 'secondary']) root.addSubview(ob[key]);
   win.center;
   obWindow = win;
 }
 
-// 照這一頁的字排版：標題、內文由上往下排，進度條、試講的框、勾選框、狀態排在內文下面，按鈕靠右下
 function obRender() {
   const copy = obCopy(obStep);
-  const width = OB_W - 80;
   ob.title.setStringValue(copy.title);
-  ob.title.setFrame($.NSMakeRect(40, OB_H - 128, width, 32));
-  ob.body.setStringValue(copy.body);
-  ob.body.setPreferredMaxLayoutWidth(width);
+  ob.title.setFrame($.NSMakeRect(OB_LEFT, OB_H - 110, OB_WIDTH, 30));
+  obSetBody(copy.body);
+  ob.body.setPreferredMaxLayoutWidth(OB_WIDTH);
   const bodyH = Math.ceil(ob.body.fittingSize.height);
-  let y = OB_H - 140 - bodyH;
-  ob.body.setFrame($.NSMakeRect(40, y, width, bodyH));
+  let y = OB_H - 120 - bodyH;
+  ob.body.setFrame($.NSMakeRect(OB_LEFT, y, OB_WIDTH, bodyH));
   ob.bar.setHidden(!copy.bar);
   if (copy.bar) {
-    y -= 30;
-    ob.bar.setFrame($.NSMakeRect(40, y, width, 12));
+    y -= 18 + 12;
+    ob.bar.setFrame($.NSMakeRect(OB_LEFT, y, OB_WIDTH, 12));
     const { models } = S();
     ob.bar.setDoubleValue(models.total ? models.done / models.total : 0);
   }
   ob.scroll.setHidden(!copy.practice);
   if (copy.practice) {
-    y -= 16 + 76;
-    ob.scroll.setFrame($.NSMakeRect(40, y, width, 76));
+    y -= 16 + 70;
+    ob.scroll.setFrame($.NSMakeRect(OB_LEFT, y, OB_WIDTH, 70));
   }
   ob.check.setHidden(!copy.check);
   if (copy.check) {
-    y -= 34;
-    ob.check.setFrame($.NSMakeRect(40, y, width, 22));
+    y -= 20 + 22;
+    ob.check.setFrame($.NSMakeRect(OB_LEFT - 2, y, OB_WIDTH, 22));
   }
   ob.status.setHidden(!copy.status);
+  ob.spinner.setHidden(!(copy.status && copy.busy));
   if (copy.status) {
+    const indent = copy.busy ? 22 : 0;
     ob.status.setStringValue(copy.status);
-    ob.status.setPreferredMaxLayoutWidth(width);
+    ob.status.setPreferredMaxLayoutWidth(OB_WIDTH - indent);
     const statusH = Math.ceil(ob.status.fittingSize.height);
-    y -= 10 + statusH;
-    ob.status.setFrame($.NSMakeRect(40, y, width, statusH));
-    ob.status.setTextColor(obStep === 'try' && obTried() ? $.NSColor.systemGreenColor : $.NSColor.secondaryLabelColor);
+    y -= 16 + statusH;
+    ob.status.setFrame($.NSMakeRect(OB_LEFT + indent, y, OB_WIDTH - indent, statusH));
+    // 綠字在淺色背景上太淡（systemGreen 對白底約 2.2:1）：淺色用深一點的綠
+    const green = obDark() ? $.NSColor.systemGreenColor : $.NSColor.colorWithSRGBRedGreenBlueAlpha(0.118, 0.498, 0.204, 1);
+    ob.status.setTextColor(copy.ok ? green : copy.error ? $.NSColor.systemRedColor : $.NSColor.secondaryLabelColor);
+    ob.spinner.setFrame($.NSMakeRect(OB_LEFT, y + statusH - 16 - 1, 16, 16));
+    if (copy.busy) ob.spinner.startAnimation($());
+  }
+  if (!(copy.status && copy.busy)) ob.spinner.stopAnimation($());
+  ob.steps.setHidden(!copy.step);
+  if (copy.step) {
+    ob.steps.setStringValue(t(`第 ${copy.step} 步，共 ${OB_STEPS} 步`, `Step ${copy.step} of ${OB_STEPS}`));
+    ob.steps.setFrame($.NSMakeRect(OB_LEFT, 27, 200, 18));
   }
   const place = (button, title, right) => {
     button.setHidden(!title);
@@ -229,7 +280,7 @@ function obRender() {
     button.setFrame($.NSMakeRect(right - w, 20, w, 32));
     return right - w - 8;
   };
-  const next = place(ob.primary, copy.primary, OB_W - 34);
+  const next = place(ob.primary, copy.primary, OB_LEFT + OB_WIDTH);
   place(ob.secondary, copy.secondary, next);
   ob.primary.setEnabled(obStep !== 'try' || obTried());
 }
@@ -297,8 +348,8 @@ function obPrimary() {
     case 'welcome': runModels(); obNext(); break;
     case 'mic': obAskMic(); break;
     case 'ax': obAskAx(); break;
-    case 'model': runModels(); obRender(); break;
-    case 'ai': setUpKey(); obGo('done'); break;
+    case 'model': if (S().models.state === 'error') { runModels(); obRender(); } else obNext(); break;
+    case 'ai': obGo('done'); break;
     case 'done': obFinish(); break;
     default: obNext();
   }
@@ -350,7 +401,7 @@ ObjC.registerSubclass({
   name: 'JarvisVoiceOnboarding',
   methods: {
     'obPrimary:': { types: ['void', ['id']], implementation() { obPrimary(); } },
-    'obSecondary:': { types: ['void', ['id']], implementation() { if (obStep === 'ai') obGo('done'); else obNext(); } },
+    'obSecondary:': { types: ['void', ['id']], implementation() { if (obStep === 'ai') { setUpKey(); obGo('done'); } else obNext(); } },
     'obTick:': { types: ['void', ['id']], implementation() { obTick(); } },
     'windowWillClose:': { types: ['void', ['id']], implementation() { obClosed(); } },
     // 試講那一頁：視窗回到最前面時游標一定在試講框（中途點到別的 app 再回來也是）

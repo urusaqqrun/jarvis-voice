@@ -1085,16 +1085,24 @@ function setUiState(state) {
   refresh();
 }
 
-// 選單列的 JarvisVoice 標誌放大 scale 倍（範本圖，顏色跟著系統），第一次設定畫面用
-function brandImage(scale) {
+// 選單列的 JarvisVoice 標誌放大 scale 倍，第一次設定畫面用：沒給顏色是範本圖（顏色跟著系統），
+// 給了就塗成那個顏色（放進字裡的那種範本圖不會跟著字變色）
+function brandImage(scale, color = null) {
   const image = $.NSImage.alloc.initWithSize($.NSMakeSize(ICON_W * scale, ICON_H * scale));
   image.lockFocus;
   const zoom = $.NSAffineTransform.transform;
   zoom.scaleBy(scale);
   zoom.concat;
   drawBrand();
+  if (color) {
+    const ctx = $.NSGraphicsContext.currentContext;
+    ctx.setCompositingOperation(5); // NSCompositingOperationSourceAtop：只塗在畫過的地方
+    color.set;
+    $.NSBezierPath.fillRect($.NSMakeRect(0, 0, ICON_W, ICON_H));
+    ctx.setCompositingOperation(2);
+  }
   image.unlockFocus;
-  image.setTemplate(true);
+  image.setTemplate(!color);
   return image;
 }
 
