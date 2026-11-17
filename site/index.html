@@ -5,10 +5,20 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>JarvisVoice：自動語音輸入與操作</title>
 <meta name="description" content="macOS 選單列小程式。開著就自動收音，你講的話直接寫進正在用的 app；講指令，它就幫你操作 app。">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="JarvisVoice">
+<meta property="og:title" content="JarvisVoice：自動語音輸入與操作">
+<meta property="og:description" content="macOS 選單列小程式。開著就自動收音，你講的話直接寫進正在用的 app；講指令，它就幫你操作 app。">
+<meta property="og:url" content="https://jarvis-voice.com/">
+<meta property="og:image" content="https://jarvis-voice.com/icon.png">
+<meta property="og:locale" content="zh_TW">
+<meta name="twitter:card" content="summary">
 <link rel="icon" href="favicon.png">
 <link rel="alternate" hreflang="zh-Hant" href="https://jarvis-voice.com/">
 <link rel="alternate" hreflang="en" href="https://jarvis-voice.com/en/">
 <link rel="alternate" hreflang="x-default" href="https://jarvis-voice.com/en/">
+<!-- 跟 CubeLV、平行沙盒同一家公司：組織用 cubelv.com 那一個 @id -->
+<script type="application/ld+json">{"@context": "https://schema.org", "@graph": [{"@type": "Organization", "@id": "https://cubelv.com/#organization", "name": "Runvo LLC", "url": "https://cubelv.com/tw/", "logo": "https://cubelv.com/press/logos/cubelv-app-icon-512.png"}, {"@type": "WebSite", "@id": "https://jarvis-voice.com/#website", "name": "JarvisVoice", "alternateName": "Jarvis Voice", "url": "https://jarvis-voice.com/", "inLanguage": "zh-Hant", "publisher": {"@id": "https://cubelv.com/#organization"}}, {"@type": "SoftwareApplication", "name": "JarvisVoice", "operatingSystem": "macOS", "applicationCategory": "UtilitiesApplication", "url": "https://jarvis-voice.com/", "description": "macOS 選單列小程式。開著就自動收音，你講的話直接寫進正在用的 app；講指令，它就幫你操作 app。", "inLanguage": "zh-Hant", "license": "https://opensource.org/licenses/MIT", "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"}, "publisher": {"@id": "https://cubelv.com/#organization"}}]}</script>
 <script>
   // 第一次來、瀏覽器不是中文：帶去英文版（選過語言就記住，不再自動帶）
   try {
@@ -73,6 +83,8 @@
   .card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 22px; }
   .card .tag { font-size: 14px; font-weight: 600; color: var(--accent); margin-bottom: 6px; }
   .card p { color: var(--muted); font-size: 16px; margin: 0; }
+  #family .card .tag { color: var(--muted); }
+  #family .layers { margin: 20px 0 16px; }
 
   .example { display: grid; gap: 16px; }
   .said, .wrote { padding: 16px 18px; border-radius: 12px; }
@@ -217,8 +229,27 @@
     </ul>
   </section>
 
+  <section id="family">
+    <h2>跟 CubeLV、平行沙盒接成一條工作流</h2>
+    <p>JarvisVoice 跟 CubeLV、平行沙盒（ParallelSandbox）是同一個團隊 Runvo LLC 做的。JarvisVoice 管「用講的交代」：你講的話寫進 Claude Code、Codex 或 CubeLV；CubeLV 把工作變成每天自己跑、該你決定時停下來的 App；要動程式的部分交給平行沙盒，好幾個 coding agent 同時平行開發，測過的版本排隊等你驗收。</p>
+    <div class="layers">
+      <div class="card">
+        <div class="tag">每天做：AI 照流程跑</div>
+        <h3><a href="https://cubelv.com/tw/">CubeLV</a></h3>
+        <p>一句話打造你自己的自動化 App。agent 照排程把每一步做完，需要你決定的地方，交件卡停下來等你按。</p>
+      </div>
+      <div class="card">
+        <div class="tag">做出來：平行開發，測過再交件</div>
+        <h3><a href="https://parallelsandbox.com/">平行沙盒 ParallelSandbox</a></h3>
+        <p>讓 Claude Code、Codex 同時平行開發：每件工作在自己的箱子裡做完、自己先測過，做好的版本排隊等你驗收。</p>
+      </div>
+    </div>
+    <p class="note">CubeLV 和平行沙盒 App 裡的語音輸入，用的也是 JarvisVoice 這套核心。一件工作怎麼從講出來走到上線：<a href="https://cubelv.com/workflow/">三個產品怎麼接成一條工作流</a>。</p>
+  </section>
+
   <footer>
-    JarvisVoice 是開源專案（MIT 授權）・<a href="https://github.com/urusaqqrun/jarvis-voice">GitHub</a>
+    JarvisVoice 是開源專案（MIT 授權）・<a href="https://github.com/urusaqqrun/jarvis-voice">GitHub</a><br>
+    Runvo LLC 的產品：<a href="https://cubelv.com/tw/">CubeLV</a>・<a href="https://parallelsandbox.com/">平行沙盒 ParallelSandbox</a>・<a href="https://cubelv.com/workflow/">一條完整的工作流</a>
   </footer>
 </main>
 </body>

@@ -5,10 +5,20 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>JarvisVoice: hands-free voice typing and app control</title>
 <meta name="description" content="A macOS menu bar app that listens on its own and types what you say into the app you're using; say a command and it operates the app for you.">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="JarvisVoice">
+<meta property="og:title" content="JarvisVoice: hands-free voice typing and app control">
+<meta property="og:description" content="A macOS menu bar app that listens on its own and types what you say into the app you're using; say a command and it operates the app for you.">
+<meta property="og:url" content="https://jarvis-voice.com/en/">
+<meta property="og:image" content="https://jarvis-voice.com/icon.png">
+<meta property="og:locale" content="en_US">
+<meta name="twitter:card" content="summary">
 <link rel="icon" href="../favicon.png">
 <link rel="alternate" hreflang="zh-Hant" href="https://jarvis-voice.com/">
 <link rel="alternate" hreflang="en" href="https://jarvis-voice.com/en/">
 <link rel="alternate" hreflang="x-default" href="https://jarvis-voice.com/en/">
+<!-- 跟 CubeLV、平行沙盒同一家公司：組織用 cubelv.com 那一個 @id -->
+<script type="application/ld+json">{"@context": "https://schema.org", "@graph": [{"@type": "Organization", "@id": "https://cubelv.com/#organization", "name": "Runvo LLC", "url": "https://cubelv.com/en/", "logo": "https://cubelv.com/press/logos/cubelv-app-icon-512.png"}, {"@type": "WebSite", "@id": "https://jarvis-voice.com/#website", "name": "JarvisVoice", "alternateName": "Jarvis Voice", "url": "https://jarvis-voice.com/en/", "inLanguage": "en", "publisher": {"@id": "https://cubelv.com/#organization"}}, {"@type": "SoftwareApplication", "name": "JarvisVoice", "operatingSystem": "macOS", "applicationCategory": "UtilitiesApplication", "url": "https://jarvis-voice.com/en/", "description": "A macOS menu bar app that listens on its own and types what you say into the app you're using; say a command and it operates the app for you.", "inLanguage": "en", "license": "https://opensource.org/licenses/MIT", "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"}, "publisher": {"@id": "https://cubelv.com/#organization"}}]}</script>
 <style>
   :root {
     --bg: #fbfaf8;
@@ -67,6 +77,8 @@
   .card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 22px; }
   .card .tag { font-size: 14px; font-weight: 600; color: var(--accent); margin-bottom: 6px; }
   .card p { color: var(--muted); font-size: 16px; margin: 0; }
+  #family .card .tag { color: var(--muted); }
+  #family .layers { margin: 20px 0 16px; }
 
   .example { display: grid; gap: 16px; }
   .said, .wrote { padding: 16px 18px; border-radius: 12px; }
@@ -211,8 +223,27 @@
     </ul>
   </section>
 
+  <section id="family">
+    <h2>One workflow with CubeLV and ParallelSandbox</h2>
+    <p>JarvisVoice is built by the same team as CubeLV and ParallelSandbox: Runvo LLC. JarvisVoice covers handing work off by talking: what you say goes into Claude Code, Codex or CubeLV. CubeLV turns the work into an app that runs every day and stops when you need to decide. Code changes go to ParallelSandbox, where several coding agents build in parallel and tested versions line up for you to try.</p>
+    <div class="layers">
+      <div class="card">
+        <div class="tag">Every day: AI follows the process</div>
+        <h3><a href="https://cubelv.com/en/">CubeLV</a></h3>
+        <p>Build your own automation app from one sentence. Agents do each step on schedule, and where you need to decide, a decision card stops and waits for you.</p>
+      </div>
+      <div class="card">
+        <div class="tag">Build: in parallel, tested before handoff</div>
+        <h3><a href="https://parallelsandbox.com/en/">ParallelSandbox</a></h3>
+        <p>Lets Claude Code and Codex work in parallel: each task is built and tested in its own box, and finished versions line up for you to try.</p>
+      </div>
+    </div>
+    <p class="note">Voice input in the CubeLV and ParallelSandbox apps uses the same core as JarvisVoice. To see one request go from spoken to shipped: <a href="https://cubelv.com/en/workflow/">how the three fit into one workflow</a>.</p>
+  </section>
+
   <footer>
-    JarvisVoice is open source (MIT license) · <a href="https://github.com/urusaqqrun/jarvis-voice">GitHub</a>
+    JarvisVoice is open source (MIT license) · <a href="https://github.com/urusaqqrun/jarvis-voice">GitHub</a><br>
+    Products by Runvo LLC: <a href="https://cubelv.com/en/">CubeLV</a> · <a href="https://parallelsandbox.com/en/">ParallelSandbox</a> · <a href="https://cubelv.com/en/workflow/">One complete workflow</a>
   </footer>
 </main>
 </body>
