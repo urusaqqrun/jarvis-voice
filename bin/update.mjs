@@ -7,7 +7,7 @@
 // 只連 GitHub（api.github.com 與 Release 的下載點），不送任何使用資料。JARVIS_UPDATE_URL 可指定別的 Release 網址（測試用）。
 
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
-import { accessSync, constants, createWriteStream, existsSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs';
+import { accessSync, constants, createWriteStream, existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { Readable } from 'node:stream';
@@ -66,21 +66,26 @@ export async function fetchUpdate(url, app, onProgress = () => {}) {
   if (!res.ok || !res.body) throw new Error(`下載新版失敗：HTTP ${res.status}`);
   const total = Number(res.headers.get('content-length')) || 0;
   const dir = mkdtempSync(join(tmpdir(), 'jarvis-update-'));
-  const zip = join(dir, 'update.zip');
-  let done = 0;
-  const body = Readable.fromWeb(res.body);
-  body.on('data', (chunk) => { done += chunk.length; onProgress(done, total); });
-  await pipeline(body, createWriteStream(zip));
-  execFileSync('/usr/bin/ditto', ['-x', '-k', zip, dir]);
-  const fresh = join(dir, 'JarvisVoice.app');
-  if (!existsSync(fresh)) throw new Error('新版的壓縮檔裡沒有 JarvisVoice.app');
-  // 同一個 app、同一張憑證簽的、Gatekeeper 認得（公證過），才換
-  if (bundleId(fresh) !== bundleId(app)) throw new Error('新版的 bundle id 跟現在的不一樣，不換');
-  execFileSync('/usr/bin/codesign', ['--verify', '--deep', '--strict', fresh], { stdio: 'ignore' });
-  const team = teamOf(app);
-  if (!team || teamOf(fresh) !== team) throw new Error('新版不是同一個開發者簽的，不換');
-  execFileSync('/usr/sbin/spctl', ['-a', '-t', 'execute', fresh], { stdio: 'ignore' });
-  return { dir, fresh };
+  try {
+    const zip = join(dir, 'update.zip');
+    let done = 0;
+    const body = Readable.fromWeb(res.body);
+    body.on('data', (chunk) => { done += chunk.length; onProgress(done, total); });
+    await pipeline(body, createWriteStream(zip));
+    execFileSync('/usr/bin/ditto', ['-x', '-k', zip, dir], { stdio: 'ignore' });
+    const fresh = join(dir, 'JarvisVoice.app');
+    if (!existsSync(fresh)) throw new Error('新版的壓縮檔裡沒有 JarvisVoice.app');
+    // 同一個 app、同一張憑證簽的、Gatekeeper 認得（公證過），才換
+    if (bundleId(fresh) !== bundleId(app)) throw new Error('新版的 bundle id 跟現在的不一樣，不換');
+    execFileSync('/usr/bin/codesign', ['--verify', '--deep', '--strict', fresh], { stdio: 'ignore' });
+    const team = teamOf(app);
+    if (!team || teamOf(fresh) !== team) throw new Error('新版不是同一個開發者簽的，不換');
+    execFileSync('/usr/sbin/spctl', ['-a', '-t', 'execute', fresh], { stdio: 'ignore' });
+    return { dir, fresh };
+  } catch (err) {
+    rmSync(dir, { recursive: true, force: true }); // 沒換成就清掉下載的（一次約 110 MB）
+    throw err;
+  }
 }
 
 // 等選單列小程式結束，舊的搬到暫存（失敗就搬回來），新的放到原位，重新打開；背景跑，選單列小程式結束了也照樣做完

@@ -4,13 +4,13 @@
 
 import assert from 'node:assert/strict';
 import { execFile, execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { promisify } from 'node:util';
-import { assertReplaceable, newer, pickUpdate, teamOf } from '../bin/update.mjs';
+import { assertReplaceable, fetchUpdate, newer, pickUpdate, teamOf } from '../bin/update.mjs';
 
 const repo = new URL('..', import.meta.url).pathname.replace(/\/$/, '');
 const mac = process.platform === 'darwin';
@@ -44,6 +44,20 @@ test('Team ID：讀得到簽章的 Team ID，沒有也不出錯（codesign 把�
   const team = teamOf(process.execPath);
   assert.equal(typeof team, 'string');
   assert.equal(teamOf(join(tmpdir(), 'jarvis-沒有這個檔')), '');
+});
+
+test('下載的新版驗不過：不換，下載的暫存也清掉', { skip: !mac && '要 ditto' }, async () => {
+  const server = createServer((req, res) => res.end('這不是 zip'));
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const leftovers = () => readdirSync(tmpdir()).filter((name) => name.startsWith('jarvis-update-')).length;
+  const before = leftovers();
+  try {
+    const app = join(mkdtempSync(join(tmpdir(), 'jarvis-app-')), 'JarvisVoice.app');
+    await assert.rejects(fetchUpdate(`http://127.0.0.1:${server.address().port}/update.zip`, app));
+    assert.equal(leftovers(), before);
+  } finally {
+    server.close();
+  }
 });
 
 test('check：照 Release API 回有沒有新版（這裡是本機假的 Release）', async () => {
