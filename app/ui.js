@@ -14,6 +14,7 @@
 const LISTEN = `${BUILD.repo}/bin/listen.mjs`;
 const MODELS_JS = `${BUILD.repo}/bin/models.mjs`;
 const UPDATE_JS = `${BUILD.repo}/bin/update.mjs`;
+const CREDITS_JS = `${BUILD.repo}/bin/credits.mjs`;
 const LOGIN = `${BUILD.repo}/bin/cubelv-login.mjs`;
 const SET_KEY = `${BUILD.repo}/bin/set-key.mjs`;
 const NODE_DIR = BUILD.node.replace(/\/[^/]*$/, '');
@@ -366,6 +367,8 @@ function refreshSettings() {
         ? t(`登出 CubeLV${settings.cubelv.email ? `（${settings.cubelv.email}）` : ''}`, `Sign out of CubeLV${settings.cubelv.email ? ` (${settings.cubelv.email})` : ''}`)
         : t('用 CubeLV 登入…（不用 key，扣 CubeLV 點數）', 'Sign in with CubeLV… (no key, uses CubeLV credits)'));
   cubelvItem.setEnabled(loginKind !== 'out');
+  if (!settings.cubelv.loggedIn) credits = { balance: null, perMinute: null, packages: [], at: 0 };
+  refreshCredits();
   const keyName = KEY_PROVIDERS[keyProvider]?.name ?? '';
   keysItem.setTitle(keyKind === 'set' ? t(`測試 ${keyName} 的 key 中…`, `Testing your ${keyName} key…`)
     : keyKind === 'clear' ? t(`清除 ${keyName} 的 key 中…`, `Removing your ${keyName} key…`) : t('設定自己的 key…', 'Set up your own key…'));
@@ -474,8 +477,13 @@ function onLoginLine(line) {
   let event;
   try { event = JSON.parse(line); } catch { return; }
   if (event.type !== 'cubelv') return;
+  if (event.state === 'error') buyAfterLogin = false;
   if (event.state === 'error' && !['cancelled', 'denied'].includes(event.code)) showAlert(t('沒有登入 CubeLV', 'Not signed in to CubeLV'), event.message);
-  else if (event.state === 'done' && event.quotaExceeded) showAlert(t('已登入 CubeLV', 'Signed in to CubeLV'), event.message);
+  else if (event.state === 'done' && buyAfterLogin) {
+    // 從「購買點數…」來的：登入好了接著選點數包（點數用完正是要買，不跳「已登入」）
+    buyAfterLogin = false;
+    $.NSTimer.scheduledTimerWithTimeIntervalTargetSelectorUserInfoRepeats(0.3, controller, 'creditsBuy:', $(), false);
+  } else if (event.state === 'done' && event.quotaExceeded) showAlert(t('已登入 CubeLV', 'Signed in to CubeLV'), event.message);
 }
 
 function onLoginOut(note) {
@@ -494,6 +502,153 @@ function onLoginEnded() {
   loginTask = null;
   loginKind = '';
   refreshSettings();
+}
+
+// ── 購買點數（不用 key）：沒登入先登入，再帶起 bin/credits.mjs 拿點數包、選一包、開 Stripe 付款頁（瀏覽器）。
+// 點數跟「用 CubeLV 登入」扣的是同一種；選單這一行順便寫剩幾點、大約還能講幾小時（打開選單時更新，30 秒內不重問）──
+let creditsItem = null;
+let creditsTask = null;
+let creditsBuffer = '';
+let creditsParts = { out: false, task: false };
+let creditsIntent = ''; // refresh（只更新選單那一行）| buy（要跳選包）
+let credits = { balance: null, perMinute: null, packages: [], at: 0 };
+let buyAfterLogin = false;
+
+const withCommas = (n) => String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+// 點數大約能講幾小時（轉寫每分鐘扣 perMinute 點）；不知道扣多少就不寫
+function creditHours(amount, perMinute) {
+  if (!perMinute) return '';
+  const hours = amount / perMinute / 60;
+  return hours >= 10 ? String(Math.round(hours)) : hours.toFixed(1);
+}
+
+function creditsTitle() {
+  if (!settings.cubelv.loggedIn) return t('購買點數（不用 key）…', 'Buy credits (no key needed)…');
+  if (credits.balance === null) return t('購買點數…', 'Buy credits…');
+  const hours = creditHours(credits.balance, credits.perMinute);
+  return t(`購買點數…（剩 ${withCommas(credits.balance)} 點${hours ? `，約 ${hours} 小時` : ''}）`,
+    `Buy credits… (${withCommas(credits.balance)} left${hours ? `, about ${hours} h` : ''})`);
+}
+
+function refreshCredits() {
+  if (creditsItem) creditsItem.setTitle(creditsTitle());
+}
+
+function runCredits(args, intent) {
+  if (creditsTask) return;
+  try {
+    const task = $.NSTask.alloc.init;
+    task.setLaunchPath(BUILD.node);
+    task.setArguments($([CREDITS_JS, ...args]));
+    task.setEnvironment(childEnv());
+    const pipe = $.NSPipe.pipe;
+    task.setStandardOutput(pipe);
+    task.setStandardError($.NSFileHandle.fileHandleWithNullDevice);
+    const reader = pipe.fileHandleForReading;
+    const center = $.NSNotificationCenter.defaultCenter;
+    center.addObserverSelectorNameObject(controller, 'creditsOut:', $.NSFileHandleReadCompletionNotification, reader);
+    center.addObserverSelectorNameObject(controller, 'creditsEnded:', $.NSTaskDidTerminateNotification, task);
+    reader.readInBackgroundAndNotify;
+    task.launch;
+    creditsTask = task;
+    creditsBuffer = '';
+    creditsParts = { out: false, task: false };
+    creditsIntent = intent;
+  } catch (err) {
+    if (intent === 'buy') showAlert(t('買不了點數', "Couldn't buy credits"), String(err));
+  }
+}
+
+// 選單「購買點數…」：沒登入先登入（登入好了 creditsBuy: 再回來），有登入就拿點數包
+function creditsAction() {
+  if (creditsTask || loginTask) return;
+  if (!settings.cubelv.loggedIn) { buyAfterLogin = true; runLogin([]); return; }
+  runCredits(['account'], 'buy');
+}
+
+// 打開選單時：有登入、30 秒內沒問過就更新剩幾點
+function creditsMenuOpened() {
+  if (!settings.cubelv.loggedIn || creditsTask || Date.now() - credits.at < 30_000) return;
+  runCredits(['account'], 'refresh');
+}
+
+// 選一包：每包寫點數、大約能講幾小時、價格；回 package id，取消回空字串
+function chooseCreditsPackage(account) {
+  const per = account.creditsPerMinute;
+  const alert = $.NSAlert.alloc.init;
+  alert.setMessageText(t('購買點數', 'Buy credits'));
+  alert.setInformativeText([
+    t('不用自己的 key：轉寫、AI 整理、語音指令都扣點數。', 'No key needed: transcription, AI cleanup and voice commands use credits.'),
+    ...(per ? [t(`講 1 分鐘約扣 ${per} 點。`, `About ${per} credits per minute of speech.`)] : []),
+    t(`現在剩 ${withCommas(account.balance)} 點。`, `You have ${withCommas(account.balance)} credits.`),
+    t('按「前往付款」會在瀏覽器打開 Stripe 的付款頁，付完幾秒內點數就會加進帳號。', 'Continue opens Stripe’s payment page in your browser; your credits are added a few seconds after you pay.'),
+  ].join('\n\n'));
+  const popup = $.NSPopUpButton.alloc.initWithFramePullsDown($.NSMakeRect(0, 0, 340, 26), false);
+  for (const p of account.packages) {
+    const hours = creditHours(p.credits, per);
+    popup.addItemWithTitle(t(`${withCommas(p.credits)} 點${hours ? `（約 ${hours} 小時）` : ''}：US$${p.priceUsd}`,
+      `${withCommas(p.credits)} credits${hours ? ` (about ${hours} h)` : ''}: US$${p.priceUsd}`));
+  }
+  alert.setAccessoryView(popup);
+  alert.addButtonWithTitle(t('前往付款', 'Continue'));
+  alert.addButtonWithTitle(t('取消', 'Cancel'));
+  $.NSApplication.sharedApplication.activateIgnoringOtherApps(true);
+  if (Number(alert.runModal) !== 1000) return '';
+  return account.packages[Number(popup.indexOfSelectedItem)]?.id ?? '';
+}
+
+function onCreditsLine(line) {
+  let event;
+  try { event = JSON.parse(line); } catch (err) { return; }
+  if (event.type !== 'credits') return;
+  if (event.state === 'account') {
+    credits = { balance: event.balance, perMinute: event.creditsPerMinute, packages: event.packages, at: Date.now() };
+    refreshCredits();
+    if (creditsIntent === 'buy') {
+      creditsIntent = '';
+      if (!event.packages.length) { showAlert(t('買不了點數', "Couldn't buy credits"), t('現在沒有可以買的點數包。', 'No credit packs are available right now.')); return; }
+      $.NSTimer.scheduledTimerWithTimeIntervalTargetSelectorUserInfoRepeats(0.1, controller, 'creditsChoose:', $(), false);
+    }
+  } else if (event.state === 'checkout') {
+    $.NSWorkspace.sharedWorkspace.openURL($.NSURL.URLWithString(event.url));
+    credits = { ...credits, at: 0 }; // 付完回來打開選單就重問
+  } else if (event.state === 'error') {
+    const intent = creditsIntent;
+    creditsIntent = '';
+    if (['not_logged_in', 'login_expired'].includes(event.code)) {
+      credits = { balance: null, perMinute: null, packages: [], at: 0 };
+      refreshCredits();
+      if (intent === 'buy') { buyAfterLogin = true; $.NSTimer.scheduledTimerWithTimeIntervalTargetSelectorUserInfoRepeats(0.1, controller, 'creditsLogin:', $(), false); }
+    } else if (intent === 'buy' || intent === 'checkout') showAlert(t('買不了點數', "Couldn't buy credits"), event.message);
+    else uiLog(`查點數失敗：${event.message}`);
+  }
+}
+
+function onCreditsOut(note) {
+  const data = note.userInfo.objectForKey($.NSFileHandleNotificationDataItem);
+  if (!data || Number(data.length) === 0) { creditsDone('out'); return; }
+  note.object.readInBackgroundAndNotify;
+  creditsBuffer += ObjC.unwrap($.NSString.alloc.initWithDataEncoding(data, $.NSUTF8StringEncoding)) || '';
+  const lines = creditsBuffer.split('\n');
+  creditsBuffer = lines.pop();
+  for (const line of lines) if (line.trim()) onCreditsLine(line.trim());
+}
+
+// 輸出讀完、程式也結束了才收尾（跟一鍵更新同一個理由：結束的通知可能比最後一行先到）
+function creditsDone(part) {
+  if (!creditsTask) return;
+  creditsParts[part] = true;
+  if (!creditsParts.out || !creditsParts.task) return;
+  if (creditsBuffer.trim()) onCreditsLine(creditsBuffer.trim());
+  creditsBuffer = '';
+  creditsTask = null;
+}
+
+// 選好包：開付款頁（creditsTask 收尾後才能帶起下一個）
+function creditsChoose() {
+  if (creditsTask) { $.NSTimer.scheduledTimerWithTimeIntervalTargetSelectorUserInfoRepeats(0.2, controller, 'creditsChoose:', $(), false); return; }
+  const id = chooseCreditsPackage({ ...credits, creditsPerMinute: credits.perMinute });
+  if (id) runCredits(['buy', id], 'checkout');
 }
 
 // ── 設定自己的 key：選一家 → 對話框貼 key → 帶起 bin/set-key.mjs 實際測一次，通了才存進鑰匙圈並切過去 ──
@@ -1228,6 +1383,7 @@ function quitApp() {
   if (typeof closeOnboardingTasks === 'function') closeOnboardingTasks();
   if (loginTask) loginTask.terminate;
   if (keyTask) keyTask.terminate;
+  if (creditsTask) creditsTask.terminate;
   $.NSApplication.sharedApplication.terminate($());
 }
 
@@ -1270,6 +1426,13 @@ ObjC.registerSubclass({
     'engineCubelv:': { types: ['void', ['id']], implementation() { chooseEngine('cubelv'); } },
     'engineParallelsandbox:': { types: ['void', ['id']], implementation() { chooseEngine('parallelsandbox'); } },
     'cubelvLogin:': { types: ['void', ['id']], implementation() { cubelvAction(); } },
+    'credits:': { types: ['void', ['id']], implementation() { creditsAction(); } },
+    'creditsOut:': { types: ['void', ['id']], implementation(note) { onCreditsOut(note); } },
+    'creditsEnded:': { types: ['void', ['id']], implementation() { creditsDone('task'); } },
+    'creditsBuy:': { types: ['void', ['id']], implementation() { if (!creditsTask) runCredits(['account'], 'buy'); } },
+    'creditsChoose:': { types: ['void', ['id']], implementation() { creditsChoose(); } },
+    'creditsLogin:': { types: ['void', ['id']], implementation() { if (!loginTask) runLogin([]); } },
+    'menuWillOpen:': { types: ['void', ['id']], implementation() { creditsMenuOpened(); } },
     'loginOut:': { types: ['void', ['id']], implementation(note) { onLoginOut(note); } },
     'loginEnded:': { types: ['void', ['id']], implementation() { onLoginEnded(); } },
     'ownKeys:': { types: ['void', ['id']], implementation() { setUpKey(); } },
@@ -1368,11 +1531,14 @@ function startUI() {
   menu.addItem(keysItem);
   cubelvItem = menuItem(t('用 CubeLV 登入…', 'Sign in with CubeLV…'), 'cubelvLogin:');
   menu.addItem(cubelvItem);
+  creditsItem = menuItem(creditsTitle(), 'credits:');
+  menu.addItem(creditsItem);
   menu.addItem(menuItem(t('設定精靈…（權限、試講、AI 整理）', 'Setup Guide… (permissions, test, AI cleanup)'), 'onboarding:'));
   menu.addItem(menuItem(t('說明', 'Help'), 'openGuide:'));
   menu.addItem($.NSMenuItem.separatorItem);
   menu.addItem(menuItem(t('結束 JarvisVoice', 'Quit JarvisVoice'), 'quitApp:'));
   statusItem.setMenu(menu);
+  menu.setDelegate(controller); // 打開選單時更新剩幾點（menuWillOpen:）
   refreshSettings();
   refresh();
   $.NSTimer.scheduledTimerWithTimeIntervalTargetSelectorUserInfoRepeats(2, controller, 'dumpFrame:', $(), false);

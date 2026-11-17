@@ -44,8 +44,8 @@ const loginExpired = () => new CubeLVError('login_expired', t('CubeLV 登入已�
   'Your CubeLV sign-in has expired: choose "Sign in with CubeLV…" in the menu again'));
 const unsupported = () => new CubeLVError('unsupported', t('這個 CubeLV 還沒開放「用 CubeLV 登入」：先用本機辨識或自己的 key',
   'This CubeLV server does not support "Sign in with CubeLV" yet: use on-device recognition or your own key for now'));
-const quotaExceeded = () => new CubeLVError('quota_exceeded', t('CubeLV 點數用完了：到 CubeLV 加值，或從選單換回本機辨識／自己的 key',
-  'Out of CubeLV credits: top up in CubeLV, or switch back to on-device / your own key in the menu'));
+const quotaExceeded = () => new CubeLVError('quota_exceeded', t('點數用完了：從選單「購買點數…」加值，或換回本機辨識／自己的 key',
+  'Out of credits: choose "Buy credits…" in the menu, or switch back to on-device / your own key'));
 
 export const trimUrl = (url) => String(url || '').replace(/\/+$/, '');
 const hostOf = (apiUrl) => new URL(apiUrl).host;
@@ -371,5 +371,21 @@ export function createSession(apiUrl, { stateDir = STATE_DIR, store, now = Date.
     return { url: `${apiUrl.replace(/^http/, 'ws')}/ws/transcription?${query}`, headers: { Authorization: `Bearer ${token}` } };
   };
 
-  return { apiUrl, check, complete, transcriptionTarget, accessToken, forget, store };
+  // 帳號：剩幾點、每分鐘扣幾點、可以買的點數包（GET /voice/account）
+  const account = async () => {
+    const res = await withToken((token) => request(`${apiUrl}/voice/account`, { method: 'GET', headers: { Authorization: `Bearer ${token}` } }));
+    if (res.status === 404) throw new CubeLVError('unsupported', t('這個 CubeLV 還沒開放在 JarvisVoice 裡買點數', 'Buying credits in JarvisVoice is not available on this server yet'));
+    if (res.status !== 200) throw new Error(t(`查不到點數（HTTP ${res.status}）`, `Couldn't get your credits (HTTP ${res.status})`));
+    return res.data;
+  };
+
+  // 買點數：開 Stripe 付款頁（POST /voice/checkout），回付款頁網址；付完後端照包加點（跟 CubeLV 網頁版買的同一種點數）
+  const checkout = async (packageId) => {
+    const res = await withToken((token) => request(`${apiUrl}/voice/checkout`, { headers: { Authorization: `Bearer ${token}` }, json: { package_id: packageId } }));
+    if (res.status === 404) throw new CubeLVError('unsupported', t('這個 CubeLV 還沒開放在 JarvisVoice 裡買點數', 'Buying credits in JarvisVoice is not available on this server yet'));
+    if (res.status !== 200 || !res.data?.url) throw new Error(t(`付款頁開不起來（HTTP ${res.status}）`, `Couldn't open the payment page (HTTP ${res.status})`));
+    return res.data.url;
+  };
+
+  return { apiUrl, check, complete, transcriptionTarget, accessToken, forget, store, account, checkout };
 }
