@@ -1,0 +1,14 @@
+{
+  "name": "jarvis-voice",
+  "description": "JarvisVoice: always-on voice typing for Mac.",
+  "owner": {
+    "name": "Runvo LLC"
+  },
+  "plugins": [
+    {
+      "name": "jarvis-voice",
+      "source": "./",
+      "description": "Set up JarvisVoice, always-on voice typing for Mac: talk and it types into the app you're using, Claude Code included."
+    }
+  ]
+}

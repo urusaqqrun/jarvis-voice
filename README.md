@@ -59,6 +59,8 @@ Everyone has their own product names, acronyms and in-house jargon, and those ar
 
 > Please follow https://github.com/urusaqqrun/jarvis-voice/blob/main/AI_SETUP.md to set up JarvisVoice for me: fill in my vocabulary and run the tests, and ask me whether I want AI cleanup, auto-focus and voice commands; if I do, set them up and check that they work.
 
+In Claude Code you can also install the setup skill first: `/plugin install jarvis-voice --marketplace urusaqqrun/jarvis-voice`, then say "set up JarvisVoice for me". Codex, Cursor and other agents: `npx skills add urusaqqrun/jarvis-voice`.
+
 The AI will:
 - Find the terms you use most in what you've typed before, write them to `~/.voice-dictation/vocabulary.txt`, and run a test comparing accuracy with and without them. In our test of 4 mixed Chinese–English developer sentences, 1/4 came out fully correct without the vocabulary and 4/4 with it.
 - Explain what AI cleanup sends and what it costs, ask whether you want OpenAI, DeepSeek or Claude, have you paste your key under "Set up your own key…" in the menu (or into a file only you can read), write the switches to your config, and run `node ~/jarvis-voice/bin/ai-check.mjs` to confirm the AI and the decision maker both work.

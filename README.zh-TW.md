@@ -59,6 +59,8 @@ cd ~/jarvis-voice
 
 > 請照 https://github.com/urusaqqrun/jarvis-voice/blob/main/AI_SETUP.md 幫我設定 JarvisVoice：填專有名詞並跑測試，也問我要不要開 AI 整理、自動找輸入框、語音指令，要的話幫我設定好並檢查。
 
+用 Claude Code 的也可以先裝設定 skill：`/plugin install jarvis-voice --marketplace urusaqqrun/jarvis-voice`，再跟它說「幫我設定 JarvisVoice」。Codex、Cursor 等其他 AI：`npx skills add urusaqqrun/jarvis-voice`。
+
 AI 會：
 - 從你打過的字裡找出常講的詞，寫進 `~/.voice-dictation/vocabulary.txt`，跑測試比較加詞彙前後的準度。實測 4 句中英夾雜的開發用語：不加詞彙整句全對 1/4，加了 4/4（「平行沙河」變回「平行沙盒」、「香芹卡」變回「鑲嵌卡」）。
 - 跟你說明 AI 整理會送出什麼、要多少錢，問你要用 OpenAI、DeepSeek 還是 Claude；請你從選單「設定自己的 key…」貼上 key（或貼進只有你讀得到的檔案）；把開關寫進設定檔；跑 `node ~/jarvis-voice/bin/ai-check.mjs` 確認 AI 和決策器都通。

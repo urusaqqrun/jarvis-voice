@@ -1,0 +1,10 @@
+{
+  "name": "jarvis-voice",
+  "version": "1.0.0",
+  "description": "Set up JarvisVoice, always-on voice typing for Mac: talk and it types into the app you're using, Claude Code included.",
+  "author": { "name": "Runvo LLC" },
+  "homepage": "https://jarvis-voice.com",
+  "repository": "https://github.com/urusaqqrun/jarvis-voice",
+  "license": "MIT",
+  "keywords": ["voice", "dictation", "speech-to-text", "macos", "voice-typing"]
+}
