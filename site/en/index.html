@@ -114,9 +114,10 @@
     <h1>JarvisVoice<span>Hands-free voice typing and app control</span></h1>
     <p class="lead">A macOS menu bar app. It listens on its own and types what you say into the app you're using; say a command and it operates the app for you. Works with Claude, ChatGPT, your browser, LINE, Notes and more.</p>
     <div class="actions">
-      <a class="button" href="https://github.com/urusaqqrun/jarvis-voice">Install from GitHub</a>
+      <a class="button" href="https://github.com/urusaqqrun/jarvis-voice/releases/latest/download/JarvisVoice.dmg">Download for Mac (free)</a>
       <a class="button secondary" href="https://github.com/urusaqqrun/jarvis-voice/blob/main/docs/ARCHITECTURE.md">Architecture and numbers</a>
     </div>
+    <p class="note">Apple Silicon Mac, macOS 14 or later. Or use Homebrew: <code>brew install --cask urusaqqrun/tap/jarvis-voice</code>. Open source (<a href="https://github.com/urusaqqrun/jarvis-voice">GitHub</a>).</p>
   </header>
 
   <section>
@@ -173,17 +174,14 @@
     <h2>Set up in two steps</h2>
     <div class="install">
       <div>
-        <h3>Step 1: install and open the app</h3>
-        <p>You need macOS, Node.js 22 or later, and ffmpeg (<code>brew install node ffmpeg</code>).</p>
-        <pre>git clone https://github.com/urusaqqrun/jarvis-voice.git ~/jarvis-voice
-cd ~/jarvis-voice
-./install.sh openai</pre>
-        <p class="note">To pay nothing for transcription, make the last line <code>./install.sh local</code> (on-device recognition; your voice never leaves your Mac). The first time, allow two permissions: Microphone and Accessibility.</p>
+        <h3>Step 1: download and open</h3>
+        <p><a href="https://github.com/urusaqqrun/jarvis-voice/releases/latest/download/JarvisVoice.dmg">Download JarvisVoice.dmg</a>, drag JarvisVoice into Applications and open it. A setup window walks you through the two permissions (Microphone and Accessibility), downloads the on-device model (about 180 MB, once) and has you try a sentence.</p>
+        <p class="note">On-device transcription is the default: free, and your voice never leaves your Mac. When a new version is out, the top of the menu says so. Developers can install from source instead: <code>git clone https://github.com/urusaqqrun/jarvis-voice.git ~/jarvis-voice &amp;&amp; cd ~/jarvis-voice &amp;&amp; ./install.sh</code> (needs Node.js 22 or later and ffmpeg).</p>
       </div>
       <div>
         <h3>Step 2: ask your AI to set it up</h3>
         <p>Open an AI that can read files and run commands on your Mac (Claude Code, Codex and the like; ChatGPT on the web can't) and paste this:</p>
-        <blockquote>Please follow ~/jarvis-voice/AI_SETUP.md to set up JarvisVoice for me: fill in my vocabulary and run the tests, and ask me whether I want AI cleanup, auto-focus and voice commands; if I do, set them up and check that they work.</blockquote>
+        <blockquote>Please follow https://github.com/urusaqqrun/jarvis-voice/blob/main/AI_SETUP.md to set up JarvisVoice for me: fill in my vocabulary and run the tests, and ask me whether I want AI cleanup, auto-focus and voice commands; if I do, set them up and check that they work.</blockquote>
         <p class="note">It finds the terms you use most in what you've typed before, asks which AI provider you want, has you paste your key into a file only you can read, and runs a check to show it works.</p>
       </div>
     </div>

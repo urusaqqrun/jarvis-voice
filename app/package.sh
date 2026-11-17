@@ -4,17 +4,19 @@
 # 用 install.sh 裝的（app/build.sh）照舊：那份 .app 只是外殼，程式讀 repo 裡的。
 #
 # 用法：app/package.sh [--version 1.0.0] [--node <node 執行檔>] [--out <資料夾>] [--bundle-id <id>] [--unsigned] [--no-notarize]
-#   --node       包進去的 Node（要 arm64、22 以上），預設 PATH 上的 node
+#   --node       包進去的 Node（要 arm64、22 以上）；沒給就從 nodejs.org 下載 NODE_VERSION（長期支援版），照官方的 SHASUMS256.txt 核對
 #   --unsigned   本機簽名、不公證（只在這台試）
 # 簽章用鑰匙圈裡第一張 Developer ID Application（JARVIS_SIGN_IDENTITY 可指定）。
 # 公證二選一：NOTARY_PROFILE（notarytool store-credentials 存的名字），或 NOTARY_KEY（.p8 路徑）＋NOTARY_KEY_ID＋NOTARY_ISSUER。
-# 產出（<out>，預設 dist/）：JarvisVoice-<版號>.dmg（給人下載）、JarvisVoice-<版號>-update.zip（App 內更新用）、SHA256SUMS、
+# 產出（<out>，預設 dist/）：JarvisVoice-<版號>.dmg 與同一份的 JarvisVoice.dmg（給人下載；後者是官網的固定網址用）、
+# JarvisVoice-<版號>-update.zip（App 內更新用）、SHA256SUMS、
 # jarvis-voice.rb（Homebrew cask，放進自家 tap）
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VERSION="$(node -p "require('$REPO/package.json').version")"
-NODE="$(command -v node || true)"
+NODE_VERSION="26.13.1" # 包進去的 Node：用長期支援版（2026-11 是 26 Lithium），升級時改這裡
+NODE=""
 OUT="$REPO/dist"
 BUNDLE_ID="com.urusa.voice-dictation"
 SIGN=1
@@ -33,6 +35,24 @@ done
 
 say() { printf '\033[1m%s\033[0m\n' "$*"; }
 fail() { printf '\033[31m%s\033[0m\n' "$*" >&2; exit 1; }
+
+# 沒指定 Node 就下載官方的 NODE_VERSION（darwin-arm64），雜湊對過才用；下載過的放在 dist/.node 重用
+if [[ -z "$NODE" ]]; then
+  CACHE="$REPO/dist/.node/v$NODE_VERSION"
+  NODE="$CACHE/node"
+  if [[ ! -x "$NODE" ]]; then
+    say "下載 Node ${NODE_VERSION}（nodejs.org）"
+    TAR="node-v$NODE_VERSION-darwin-arm64.tar.gz"
+    DL="$(mktemp -d)"
+    curl -fsSL --retry 3 -o "$DL/$TAR" "https://nodejs.org/dist/v$NODE_VERSION/$TAR"
+    curl -fsSL --retry 3 -o "$DL/SHASUMS256.txt" "https://nodejs.org/dist/v$NODE_VERSION/SHASUMS256.txt"
+    (cd "$DL" && grep " $TAR\$" SHASUMS256.txt | shasum -a 256 -c -) || fail "Node 的雜湊對不上，不用"
+    tar -xzf "$DL/$TAR" -C "$DL"
+    mkdir -p "$CACHE"
+    mv "$DL/node-v$NODE_VERSION-darwin-arm64/bin/node" "$NODE"
+    rm -rf "$DL"
+  fi
+fi
 
 [[ -x "$NODE" ]] || fail "找不到 Node：用 --node 指定"
 lipo -archs "$NODE" | grep -qw arm64 || fail "$NODE 不是 arm64"
@@ -109,10 +129,15 @@ cp "$NODE" "$RES/node"
 chmod 755 "$RES/node"
 
 say "簽章（$([[ "$IDENTITY" == - ]] && echo 本機簽名 || echo Developer ID)）"
-# 本機簽名不開 hardened runtime：沒有 Team ID，開了 Node 就載不進原生模組（library validation）
+# 本機簽名不開 hardened runtime：沒有 Team ID，開了 Node 就載不進原生模組（library validation）。
+# Developer ID 要 Apple 的時間戳記（timestamp.apple.com）才能公證：一時連不上就再試兩次
 sign() {
-  if [[ "$IDENTITY" == - ]]; then codesign --force --sign - "$@"
-  else codesign --force --timestamp --options runtime --sign "$IDENTITY" "$@"; fi
+  if [[ "$IDENTITY" == - ]]; then codesign --force --sign - "$@"; return; fi
+  for try in 1 2 3; do
+    codesign --force --timestamp --options runtime --sign "$IDENTITY" "$@" && return
+    sleep 10
+  done
+  fail "簽章失敗（Apple 的時間戳記服務 timestamp.apple.com 連不上時也會這樣，等一下再打）"
 }
 # 裡面的程式碼先簽，最後簽整個 .app
 while IFS= read -r -d '' file; do
@@ -164,7 +189,9 @@ if (( NOTARIZE )); then
   spctl -a -t open --context context:primary-signature "$DMG" || fail "Gatekeeper 不認 .dmg"
 fi
 
-(cd "$OUT" && shasum -a 256 "$(basename "$DMG")" "$(basename "$ZIP")" > SHA256SUMS)
+# 官網、README 的下載鈕用 releases/latest/download/JarvisVoice.dmg（GitHub 轉到最新版的同名檔），所以每版另放一份固定檔名的
+cp "$DMG" "$OUT/JarvisVoice.dmg"
+(cd "$OUT" && shasum -a 256 "$(basename "$DMG")" "$(basename "$ZIP")" JarvisVoice.dmg > SHA256SUMS)
 
 # Homebrew cask（自家 tap 用：發布時把這個檔放進 tap repo 的 Casks/）；下載點是 GitHub Release 上的 .dmg
 cat > "$OUT/jarvis-voice.rb" <<CASK
@@ -182,6 +209,7 @@ cask "jarvis-voice" do
     strategy :github_latest
   end
 
+  auto_updates true
   depends_on arch: :arm64
   depends_on macos: ">= :sonoma"
 

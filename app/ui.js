@@ -13,6 +13,7 @@
 // BUILD（{ node, repo, state, bundled }）由外殼放在全域。
 const LISTEN = `${BUILD.repo}/bin/listen.mjs`;
 const MODELS_JS = `${BUILD.repo}/bin/models.mjs`;
+const UPDATE_JS = `${BUILD.repo}/bin/update.mjs`;
 const LOGIN = `${BUILD.repo}/bin/cubelv-login.mjs`;
 const SET_KEY = `${BUILD.repo}/bin/set-key.mjs`;
 const NODE_DIR = BUILD.node.replace(/\/[^/]*$/, '');
@@ -1051,6 +1052,109 @@ function onModelEnded() {
   }
 }
 
+// ── App 內更新（下載版才有；install.sh 裝的用 git pull）：打開 1 分鐘後看一次、之後每 6 小時看一次 GitHub 上最新的 Release，
+// 有新版就在選單最上面出「有新版：更新並重新打開…」。按了先問，再帶起 bin/update.mjs 下載、驗過（同一張憑證簽的、公證過），
+// 收到 ready 就結束自己，背景的小腳本把新版換上、重新打開。看不到新版（沒網路、GitHub 限流）不吵，只記 ui.log
+let updateItem = null;
+let updateTask = null;
+let updateBuffer = '';
+let update = { state: 'idle', version: '', url: '', done: 0, total: 0 }; // idle | checking | available | installing
+const APP_VERSION = ObjC.unwrap($.NSBundle.mainBundle.infoDictionary.objectForKey('CFBundleShortVersionString')) || '';
+
+// 選單最上面那一行：沒有新版是空字串（不顯示）
+function updateTitle() {
+  const pct = update.total ? ` ${Math.floor((update.done / update.total) * 100)}%` : '';
+  if (update.state === 'installing') return t(`下載新版 ${update.version} 中…${pct}`, `Downloading JarvisVoice ${update.version}…${pct}`);
+  if (update.state === 'available') return t(`有新版 ${update.version}：更新並重新打開…`, `JarvisVoice ${update.version} is available: update and restart…`);
+  return '';
+}
+
+function refreshUpdate() {
+  if (!updateItem) return;
+  const title = updateTitle();
+  updateItem.setHidden(!title);
+  updateItem.setEnabled(update.state === 'available');
+  if (title) updateItem.setTitle(title);
+}
+
+function runUpdate(args) {
+  if (updateTask) return;
+  try {
+    const u = $.NSTask.alloc.init;
+    u.setLaunchPath(BUILD.node);
+    u.setArguments($([UPDATE_JS, ...args]));
+    u.setEnvironment(childEnv());
+    const pipe = $.NSPipe.pipe;
+    u.setStandardOutput(pipe);
+    u.setStandardError($.NSFileHandle.fileHandleWithNullDevice);
+    const reader = pipe.fileHandleForReading;
+    const center = $.NSNotificationCenter.defaultCenter;
+    center.addObserverSelectorNameObject(controller, 'updateOut:', $.NSFileHandleReadCompletionNotification, reader);
+    center.addObserverSelectorNameObject(controller, 'updateEnded:', $.NSTaskDidTerminateNotification, u);
+    reader.readInBackgroundAndNotify;
+    u.launch;
+    updateTask = u;
+    updateBuffer = '';
+  } catch (err) {
+    uiLog(`更新程式開不起來：${err}`);
+  }
+}
+
+function checkUpdate() {
+  if (!BUILD.bundled || !APP_VERSION || update.state === 'installing') return;
+  runUpdate(['check', '--current', APP_VERSION]);
+}
+
+function onUpdateLine(line) {
+  let event;
+  try { event = JSON.parse(line); } catch (err) { return; }
+  if (event.type !== 'update') return;
+  if (event.state === 'available') update = { ...update, state: 'available', version: event.version, url: event.url };
+  else if (event.state === 'none' && update.state !== 'installing') update = { ...update, state: 'idle' };
+  else if (event.state === 'progress') update = { ...update, done: event.done, total: event.total };
+  else if (event.state === 'ready') { quitApp(); return; } // 背景的小腳本等這個 app 結束才換新、重開
+  else if (event.state === 'error') {
+    if (update.state === 'installing') {
+      update = { ...update, state: 'available', done: 0, total: 0 };
+      showAlert(t('沒有更新', 'Not updated'), event.message);
+    } else uiLog(`看新版失敗：${event.message}`);
+  }
+  refreshUpdate();
+}
+
+function onUpdateOut(note) {
+  const data = note.userInfo.objectForKey($.NSFileHandleNotificationDataItem);
+  if (!data || Number(data.length) === 0) return;
+  note.object.readInBackgroundAndNotify;
+  updateBuffer += ObjC.unwrap($.NSString.alloc.initWithDataEncoding(data, $.NSUTF8StringEncoding)) || '';
+  const lines = updateBuffer.split('\n');
+  updateBuffer = lines.pop();
+  for (const line of lines) if (line.trim()) onUpdateLine(line.trim());
+}
+
+function onUpdateEnded() {
+  if (updateBuffer.trim()) onUpdateLine(updateBuffer.trim());
+  updateBuffer = '';
+  updateTask = null;
+  if (update.state === 'installing') { update = { ...update, state: 'available', done: 0, total: 0 }; refreshUpdate(); }
+}
+
+function updateAction() {
+  if (update.state !== 'available' || updateTask) return;
+  $.NSApplication.sharedApplication.activateIgnoringOtherApps(true);
+  const alert = $.NSAlert.alloc.init;
+  alert.setMessageText(t(`更新到 JarvisVoice ${update.version}？`, `Update to JarvisVoice ${update.version}?`));
+  alert.setInformativeText(t('下載新版，確認是同一個開發者簽的、Apple 公證過，換好會自己重新打開。設定、專有名詞、key 都不會動。',
+    'JarvisVoice downloads the new version, checks that it’s signed by the same developer and notarized by Apple, then restarts. Your settings, vocabulary and keys stay as they are.'));
+  alert.addButtonWithTitle(t('更新', 'Update'));
+  alert.addButtonWithTitle(t('取消', 'Cancel'));
+  if (Number(alert.runModal) !== 1000) return;
+  update = { ...update, state: 'installing', done: 0, total: 0 };
+  refreshUpdate();
+  runUpdate(['install', '--url', update.url, '--app', ObjC.unwrap($.NSBundle.mainBundle.bundlePath),
+    '--pid', String(Number($.NSProcessInfo.processInfo.processIdentifier))]);
+}
+
 // ── 第一次設定畫面（app/onboarding.js）：新裝（還沒有設定檔）或上次沒走完（onboarding 檔還在）才自動出現；
 // 選單「設定精靈…」隨時可以再打開。VOICE_DICTATION_ONBOARDING=1／0 強制出現／不出現（測試用）
 function needsOnboarding() {
@@ -1110,6 +1214,7 @@ function quitApp() {
   quitting = true;
   if (task) task.terminate;
   if (modelTask) modelTask.terminate;
+  if (updateTask && update.state !== 'installing') updateTask.terminate;
   if (typeof closeOnboardingTasks === 'function') closeOnboardingTasks();
   if (loginTask) loginTask.terminate;
   if (keyTask) keyTask.terminate;
@@ -1173,6 +1278,10 @@ ObjC.registerSubclass({
     'modelEnded:': { types: ['void', ['id']], implementation() { onModelEnded(); } },
     'modelRetry:': { types: ['void', ['id']], implementation() { runModels(); } },
     'onboarding:': { types: ['void', ['id']], implementation() { showOnboarding(); } },
+    'updateOut:': { types: ['void', ['id']], implementation(note) { onUpdateOut(note); } },
+    'updateEnded:': { types: ['void', ['id']], implementation() { onUpdateEnded(); } },
+    'updateCheck:': { types: ['void', ['id']], implementation() { checkUpdate(); } },
+    'updateAction:': { types: ['void', ['id']], implementation() { updateAction(); } },
     'dumpFrame:': { types: ['void', ['id']], implementation() { dumpFrame(); } },
     'flashEnd:': { types: ['void', ['id']], implementation() { if (flash && Date.now() >= flash.until) { flash = null; refresh(); } } },
     'animate:': { types: ['void', ['id']], implementation() { refresh(); } },
@@ -1199,6 +1308,10 @@ function startUI() {
   statusItem.setAutosaveName('VoiceDictation');
   const menu = $.NSMenu.alloc.init;
   menu.setAutoenablesItems(false);
+  // 有新版才出現（下載版）
+  updateItem = menuItem('', 'updateAction:');
+  menu.addItem(updateItem);
+  refreshUpdate();
   statusLine = menuItem(t('啟動中…', 'Starting…'), null);
   statusLine.setEnabled(false);
   menu.addItem(statusLine);
@@ -1253,5 +1366,9 @@ function startUI() {
   refreshSettings();
   refresh();
   $.NSTimer.scheduledTimerWithTimeIntervalTargetSelectorUserInfoRepeats(2, controller, 'dumpFrame:', $(), false);
+  if (BUILD.bundled) {
+    $.NSTimer.scheduledTimerWithTimeIntervalTargetSelectorUserInfoRepeats(60, controller, 'updateCheck:', $(), false);
+    $.NSTimer.scheduledTimerWithTimeIntervalTargetSelectorUserInfoRepeats(6 * 3600, controller, 'updateCheck:', $(), true);
+  }
   if (needsOnboarding()) { view = { ...view, state: 'setup' }; refresh(); showOnboarding(); } else startWithModels();
 }

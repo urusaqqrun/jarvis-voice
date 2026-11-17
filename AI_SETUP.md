@@ -23,7 +23,7 @@
 | `config.json` | 設定檔；這次要動的是 `openai.prompt`、`openai.languages`、`replacements` |
 | `test-sentences.txt` | 測試句，一行一句，`#` 後面是註解 |
 
-測試指令在小程式的程式資料夾裡，預設是 `~/jarvis-voice`：
+測試指令在小程式的程式資料夾裡。用終端機裝的在 `~/jarvis-voice`，下面的指令照寫；下載版（.dmg、Homebrew 裝的）在 `/Applications/JarvisVoice.app/Contents/Resources/app`，Node 也在 app 裡，這份文件裡的 `node ~/jarvis-voice/bin/…` 都要換成 `/Applications/JarvisVoice.app/Contents/Resources/node /Applications/JarvisVoice.app/Contents/Resources/app/bin/…`。`vocab-test.mjs` 要 ffmpeg：下載版的使用者沒有的話，請他 `brew install ffmpeg`，或先只寫詞彙表、跳過測試。
 
 ```bash
 node ~/jarvis-voice/bin/vocab-test.mjs          # 用 macOS 合成語音念測試句

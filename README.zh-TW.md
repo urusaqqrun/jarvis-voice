@@ -22,7 +22,14 @@ macOS 選單列小程式。開著就自動收音，你講的話直接寫進正�
 
 **第一步：裝好、打開小程式**
 
-需要 macOS、Node.js 22 以上、ffmpeg（`brew install node ffmpeg`）。
+下載 [JarvisVoice.dmg](https://github.com/urusaqqrun/jarvis-voice/releases/latest/download/JarvisVoice.dmg)（Apple Silicon 的 Mac、macOS 14 以上），把 JarvisVoice 拖進「應用程式」打開就好。也可以用 Homebrew：`brew install --cask urusaqqrun/tap/jarvis-voice`。
+
+第一次打開會有一個設定視窗，帶你開兩個權限、下載本機辨識模型（約 180 MB，只要一次）、講一句試試。之後有新版，選單最上面會出現「更新並重新打開」。
+
+<details>
+<summary>改用原始碼安裝（開發者）</summary>
+
+需要 Node.js 22 以上、ffmpeg（`brew install node ffmpeg`）。
 
 ```bash
 git clone https://github.com/urusaqqrun/jarvis-voice.git ~/jarvis-voice
@@ -30,7 +37,11 @@ cd ~/jarvis-voice
 ./install.sh openai   # 用 OpenAI 轉寫（最準）；不想花錢就用 ./install.sh local
 ```
 
-裝完選單列會出現「JarvisVoice」的圖示（循環箭頭包住三條聲波）。第一次用要給兩個權限，都只要一次：
+更新用 `git pull && ./install.sh`。
+
+</details>
+
+裝完選單列會出現「JarvisVoice」的圖示（循環箭頭包住三條聲波）。要給兩個權限，都只要一次（設定視窗會帶你開）：
 
 1. **麥克風**：跳出「JarvisVoice 想要取用麥克風」時按允許。
 2. **輔助使用**（貼上要用）：第一次講話時會跳出詢問，到「系統設定 → 隱私權與安全性 → 輔助使用」打開「JarvisVoice」。
@@ -38,7 +49,7 @@ cd ~/jarvis-voice
 
 轉寫與 AI 整理用哪一種，三種擇一，之後隨時可以從選單換：
 
-- **本機辨識**：免費，聲音不離開你的電腦（`./install.sh local`）。
+- **本機辨識**：免費，聲音不離開你的電腦（預設；用原始碼裝的是 `./install.sh local`）。
 - **自己的 key**：OpenAI 轉寫最準；AI 整理可以選 OpenAI、DeepSeek、Claude。從選單按「設定自己的 key…」，選哪一家、貼上 key 就好：會先實際測一次，通了才存進 macOS 鑰匙圈（不寫進設定檔），並把 AI 整理切到那家；OpenAI 轉寫要你勾了才換，不勾就維持原本的轉寫（例如本機辨識）（見下面「[設定自己的 key](#設定自己的-key)」）。也可以第二步請 AI 幫你放（key 由你自己貼，AI 不經手），或自己在 `~/.voice-dictation/config.json` 的 `openai` 裡加 `"apiKeyFile": "放 key 的檔案"`。
 - **用 CubeLV 登入**：不用準備 key。從選單按「用 CubeLV 登入…」，轉寫、AI 整理、語音指令的判斷都扣 [CubeLV](https://cubelv.com) 帳號的點數（見下面「[用 CubeLV 登入](#用-cubelv-登入)」）。
 
@@ -46,7 +57,7 @@ cd ~/jarvis-voice
 
 每個人常講的產品名、英文縮寫、公司內部用語都不一樣，這些詞最容易被聽錯；AI 整理、自動找輸入框、語音指令也要選 AI、有 key 才能開（key 可以自己從選單「設定自己的 key…」貼，不用經過 AI）。打開能在你電腦上讀檔、跑指令的 AI（Claude Code、Codex 這類；ChatGPT 網頁版做不到），把這句話貼給它（不想用 AI 的話，照下面「設定檔」一節自己改也可以）：
 
-> 請照 ~/jarvis-voice/AI_SETUP.md 幫我設定 JarvisVoice：填專有名詞並跑測試，也問我要不要開 AI 整理、自動找輸入框、語音指令，要的話幫我設定好並檢查。
+> 請照 https://github.com/urusaqqrun/jarvis-voice/blob/main/AI_SETUP.md 幫我設定 JarvisVoice：填專有名詞並跑測試，也問我要不要開 AI 整理、自動找輸入框、語音指令，要的話幫我設定好並檢查。
 
 AI 會：
 - 從你打過的字裡找出常講的詞，寫進 `~/.voice-dictation/vocabulary.txt`，跑測試比較加詞彙前後的準度。實測 4 句中英夾雜的開發用語：不加詞彙整句全對 1/4，加了 4/4（「平行沙河」變回「平行沙盒」、「香芹卡」變回「鑲嵌卡」）。

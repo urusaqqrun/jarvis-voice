@@ -120,9 +120,10 @@
     <h1>JarvisVoice<span>自動語音輸入與操作</span></h1>
     <p class="lead">macOS 選單列小程式。開著就自動收音，你講的話直接寫進正在用的 app；講指令，它就幫你操作 app。Claude、ChatGPT、瀏覽器、LINE、備忘錄都可以。</p>
     <div class="actions">
-      <a class="button" href="https://github.com/urusaqqrun/jarvis-voice">到 GitHub 安裝</a>
+      <a class="button" href="https://github.com/urusaqqrun/jarvis-voice/releases/latest/download/JarvisVoice.dmg">下載 Mac 版（免費）</a>
       <a class="button secondary" href="https://github.com/urusaqqrun/jarvis-voice/blob/main/docs/ARCHITECTURE.md">架構與實測數字</a>
     </div>
+    <p class="note">Apple Silicon 的 Mac、macOS 14 以上。也可以用 Homebrew：<code>brew install --cask urusaqqrun/tap/jarvis-voice</code>。開源（<a href="https://github.com/urusaqqrun/jarvis-voice">GitHub</a>）。</p>
   </header>
 
   <section>
@@ -179,17 +180,14 @@
     <h2>兩個步驟裝好</h2>
     <div class="install">
       <div>
-        <h3>第一步：裝好、打開小程式</h3>
-        <p>需要 macOS、Node.js 22 以上、ffmpeg（<code>brew install node ffmpeg</code>）。</p>
-        <pre>git clone https://github.com/urusaqqrun/jarvis-voice.git ~/jarvis-voice
-cd ~/jarvis-voice
-./install.sh openai</pre>
-        <p class="note">不想付轉寫的錢，最後一行改成 <code>./install.sh local</code>（本機辨識，聲音不離開你的電腦）。第一次用要允許麥克風和「輔助使用」兩個權限。</p>
+        <h3>第一步：下載、打開</h3>
+        <p><a href="https://github.com/urusaqqrun/jarvis-voice/releases/latest/download/JarvisVoice.dmg">下載 JarvisVoice.dmg</a>，把 JarvisVoice 拖進「應用程式」打開。第一次會有設定視窗，帶你開麥克風和「輔助使用」兩個權限、下載本機辨識模型（約 180 MB，只要一次）、講一句試試。</p>
+        <p class="note">預設用本機辨識：免費，聲音不離開你的電腦。之後有新版，選單最上面會出現「更新並重新打開」。開發者也可以從原始碼裝：<code>git clone https://github.com/urusaqqrun/jarvis-voice.git ~/jarvis-voice &amp;&amp; cd ~/jarvis-voice &amp;&amp; ./install.sh</code>（要 Node.js 22 以上、ffmpeg）。</p>
       </div>
       <div>
         <h3>第二步：請你的 AI 幫你設定</h3>
         <p>打開能在你電腦上讀檔、跑指令的 AI（Claude Code、Codex 這類；ChatGPT 網頁版做不到），把這句話貼給它：</p>
-        <blockquote>請照 ~/jarvis-voice/AI_SETUP.md 幫我設定 JarvisVoice：填專有名詞並跑測試，也問我要不要開 AI 整理、自動找輸入框、語音指令，要的話幫我設定好並檢查。</blockquote>
+        <blockquote>請照 https://github.com/urusaqqrun/jarvis-voice/blob/main/AI_SETUP.md 幫我設定 JarvisVoice：填專有名詞並跑測試，也問我要不要開 AI 整理、自動找輸入框、語音指令，要的話幫我設定好並檢查。</blockquote>
         <p class="note">它會從你打過的字找出常講的專有名詞，問你要用哪家 AI，請你自己把 key 貼進只有你讀得到的檔案，最後跑檢查給你看。</p>
       </div>
     </div>

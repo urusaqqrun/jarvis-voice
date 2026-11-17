@@ -22,7 +22,14 @@ Architecture and measured numbers (in Chinese): [docs/ARCHITECTURE.md](docs/ARCH
 
 **Step 1: install and open the app**
 
-You need macOS, Node.js 22 or later, and ffmpeg (`brew install node ffmpeg`).
+Download [JarvisVoice.dmg](https://github.com/urusaqqrun/jarvis-voice/releases/latest/download/JarvisVoice.dmg) (Apple Silicon Mac, macOS 14 or later), drag JarvisVoice into Applications and open it. Or use Homebrew: `brew install --cask urusaqqrun/tap/jarvis-voice`.
+
+The first time, a short setup window walks you through the two permissions, downloads the on-device model (about 180 MB, once) and has you try a sentence. JarvisVoice updates itself: when a new version is out, the top of its menu says so.
+
+<details>
+<summary>Install from source instead (developers)</summary>
+
+You need Node.js 22 or later and ffmpeg (`brew install node ffmpeg`).
 
 ```bash
 git clone https://github.com/urusaqqrun/jarvis-voice.git ~/jarvis-voice
@@ -30,7 +37,11 @@ cd ~/jarvis-voice
 ./install.sh openai   # OpenAI transcription (most accurate); use ./install.sh local to pay nothing
 ```
 
-The JarvisVoice icon (a circular arrow around three sound bars) appears in the menu bar. The first time, macOS asks for two permissions, once each:
+Update with `git pull && ./install.sh`.
+
+</details>
+
+The JarvisVoice icon (a circular arrow around three sound bars) appears in the menu bar. macOS asks for two permissions, once each (the setup window takes you through them):
 
 1. **Microphone**: allow it when "JarvisVoice would like to access the microphone" appears.
 2. **Accessibility** (needed to paste): you're asked the first time you speak. Turn on "JarvisVoice" in System Settings → Privacy & Security → Accessibility.
@@ -38,7 +49,7 @@ The JarvisVoice icon (a circular arrow around three sound bars) appears in the m
 
 Pick one of three ways to power transcription and AI cleanup; you can switch any time from the menu:
 
-- **On-device**: free, and your audio never leaves your Mac (`./install.sh local`).
+- **On-device**: free, and your audio never leaves your Mac (the default; `./install.sh local` from source).
 - **Your own keys**: OpenAI transcription is the most accurate; AI cleanup can use OpenAI, DeepSeek or Claude. Choose "Set up your own key…" in the menu, pick a provider and paste your key: it's tested first and saved to the macOS Keychain only if it works (never to the config file), and AI cleanup switches to that provider; OpenAI transcription only switches if you tick the box, otherwise it stays as it is, e.g. on-device (see [Set up your own key](#set-up-your-own-key) below). You can also let your AI set it up in step 2 (you paste the key yourself; the AI never sees it), or add `"apiKeyFile": "<file with your key>"` under `openai` in `~/.voice-dictation/config.json`.
 - **Sign in with CubeLV**: no keys needed. Choose "Sign in with CubeLV…" in the menu, and transcription, AI cleanup and voice-command decisions use your [CubeLV](https://cubelv.com) account's credits (see [Sign in with CubeLV](#sign-in-with-cubelv) below).
 
@@ -46,7 +57,7 @@ Pick one of three ways to power transcription and AI cleanup; you can switch any
 
 Everyone has their own product names, acronyms and in-house jargon, and those are the words speech recognition gets wrong most. AI cleanup, auto-focus and voice commands also need an AI provider and a key (you can paste the key yourself under "Set up your own key…" in the menu, without the AI). Open an AI that can read files and run commands on your Mac (Claude Code, Codex and the like; ChatGPT on the web can't) and paste this (or edit the config file yourself, see "Config file" below):
 
-> Please follow ~/jarvis-voice/AI_SETUP.md to set up JarvisVoice for me: fill in my vocabulary and run the tests, and ask me whether I want AI cleanup, auto-focus and voice commands; if I do, set them up and check that they work.
+> Please follow https://github.com/urusaqqrun/jarvis-voice/blob/main/AI_SETUP.md to set up JarvisVoice for me: fill in my vocabulary and run the tests, and ask me whether I want AI cleanup, auto-focus and voice commands; if I do, set them up and check that they work.
 
 The AI will:
 - Find the terms you use most in what you've typed before, write them to `~/.voice-dictation/vocabulary.txt`, and run a test comparing accuracy with and without them. In our test of 4 mixed Chinese–English developer sentences, 1/4 came out fully correct without the vocabulary and 4/4 with it.
