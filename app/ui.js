@@ -8,8 +8,11 @@
 // 「用 CubeLV 登入…」帶起 bin/cubelv-login.mjs（瀏覽器登入，不用 key、扣 CubeLV 點數），跟自己的 key、本機辨識並列，不是預設；
 // 「換回原文」把上一段 AI 整理過的字換回轉寫原稿。
 // 游標旁的小框（bubble 事件）：講話中即時顯示聽到的字、整理中、已貼上、指令做到哪一步、出錯，不搶焦點、滑鼠點不到。
-// BUILD（{ node, repo, state }）由外殼放在全域。
+// 新裝第一次打開（還沒有設定檔）先出第一次設定畫面（app/onboarding.js），走到「講一句試試」才帶起常駐程式。
+// 下載版（app/package.sh 打的，BUILD.bundled）啟動常駐程式前先帶起 bin/models.mjs 補下載本機模型，進度寫在選單第一行。
+// BUILD（{ node, repo, state, bundled }）由外殼放在全域。
 const LISTEN = `${BUILD.repo}/bin/listen.mjs`;
+const MODELS_JS = `${BUILD.repo}/bin/models.mjs`;
 const LOGIN = `${BUILD.repo}/bin/cubelv-login.mjs`;
 const SET_KEY = `${BUILD.repo}/bin/set-key.mjs`;
 const NODE_DIR = BUILD.node.replace(/\/[^/]*$/, '');
@@ -17,7 +20,8 @@ const NODE_DIR = BUILD.node.replace(/\/[^/]*$/, '');
 const LANG = ObjC.unwrap($.NSProcessInfo.processInfo.environment.objectForKey('VOICE_DICTATION_LANG'))
   || ObjC.unwrap($.NSLocale.preferredLanguages.firstObject) || '';
 const ZH = /^zh/i.test(LANG);
-const t = (zh, en) => (ZH ? zh : en);
+// t、statePath、fm 用 function 宣告：app/onboarding.js 另外 eval，看不到這個檔的 const
+function t(zh, en) { return ZH ? zh : en; }
 const ENGINE_NAMES = { local: t('本機', 'on-device'), openai: 'OpenAI', cubelv: 'CubeLV', parallelsandbox: t('平行沙盒', 'ParallelSandbox') };
 // 轉寫子選單：免費的本機排第一，CubeLV 跟自己的 key 並列
 const ENGINE_ITEMS = {
@@ -91,8 +95,8 @@ const aiItems = {};
 let autoFocusItem = null;
 let commandsItem = null;
 
-const statePath = (name) => `${BUILD.state}/${name}`;
-const fm = () => $.NSFileManager.defaultManager;
+function statePath(name) { return `${BUILD.state}/${name}`; }
+function fm() { return $.NSFileManager.defaultManager; }
 
 // 介面自己的 log（ui.log）：處理常駐程式送來的訊息出錯時記下來，跟 listen.log 一樣超過 1MB 就清空
 function uiLog(message) {
@@ -122,6 +126,8 @@ function label() {
     case 'error': return t(`出錯：${view.message}`, `Error: ${view.message}`);
     case 'already-running': return t('已經有另一個 JarvisVoice 在跑，等它結束後接手', 'Another JarvisVoice is running; taking over when it exits');
     case 'off': return t('常駐程式沒在跑，重新啟動中…', 'The background process stopped; restarting…');
+    case 'setup': return t('第一次設定中…', 'Setting up…');
+    case 'models': return modelsLabel();
     default: return t('啟動中…', 'Starting…');
   }
 }
@@ -370,7 +376,9 @@ function refreshSettings() {
   const vp = settings.voiceprint ?? {};
   voiceprintItem.setState(vp.enabled ? 1 : 0);
   // 聲紋在背景學（core/voiceprint.mjs）：選單不分「學好了／還在學」，只有模型沒裝要說
-  voiceprintItem.setTitle(vp.enabled && !vp.ready ? t('只聽我的聲音（聲紋模型沒裝，重跑 install.sh）', 'Only my voice (model missing; rerun install.sh)')
+  const vpMissing = BUILD.bundled ? t('只聽我的聲音（聲紋模型還沒下載，結束再打開 JarvisVoice）', 'Only my voice (model not downloaded yet; quit and reopen JarvisVoice)')
+    : t('只聽我的聲音（聲紋模型沒裝，重跑 install.sh）', 'Only my voice (model missing; rerun install.sh)');
+  voiceprintItem.setTitle(vp.enabled && !vp.ready ? vpMissing
     : t('只聽我的聲音（聲紋）', 'Only my voice (voiceprint)'));
   voiceprintResetItem.setEnabled(!!(vp.enabled && vp.ready && vp.enrolled));
   commandsItem.setTitle(settings.decider
@@ -960,9 +968,141 @@ function startListener() {
   }
 }
 
+// ── 本機模型：帶起 bin/models.mjs 補下載缺的（SenseVoice、聲紋），下載完再做 then（啟動常駐程式）。
+// 下載中選單第一行寫進度；失敗 60 秒後再試。第一次設定畫面也看 models 畫進度（onboardingModels）
+let modelTask = null;
+let modelBuffer = '';
+let models = { state: 'idle', model: '', done: 0, total: 0, message: '' }; // idle | downloading | done | error
+let afterModels = null;
+
+function modelsLabel() {
+  const pct = models.total ? ` ${Math.floor((models.done / models.total) * 100)}%` : '';
+  return t(`下載本機辨識模型中…${pct}`, `Downloading the on-device model…${pct}`);
+}
+
+function modelsChanged() {
+  if (models.state === 'downloading' && (!task || view.state !== 'listening')) { view = { ...view, state: 'models', message: '' }; refresh(); }
+  if (typeof onboardingModels === 'function') onboardingModels();
+}
+
+function runModels(then = null) {
+  if (then) afterModels = then;
+  if (modelTask) return;
+  if (models.state === 'done') { const next = afterModels; afterModels = null; if (next) next(); return; }
+  try {
+    const m = $.NSTask.alloc.init;
+    m.setLaunchPath(BUILD.node);
+    m.setArguments($([MODELS_JS, '--json']));
+    m.setEnvironment(childEnv());
+    const pipe = $.NSPipe.pipe;
+    m.setStandardOutput(pipe);
+    m.setStandardError($.NSFileHandle.fileHandleWithNullDevice);
+    const reader = pipe.fileHandleForReading;
+    const center = $.NSNotificationCenter.defaultCenter;
+    center.addObserverSelectorNameObject(controller, 'modelOut:', $.NSFileHandleReadCompletionNotification, reader);
+    center.addObserverSelectorNameObject(controller, 'modelEnded:', $.NSTaskDidTerminateNotification, m);
+    reader.readInBackgroundAndNotify;
+    m.launch;
+    modelTask = m;
+    modelBuffer = '';
+    models = { state: 'downloading', model: '', done: 0, total: 0, message: '' };
+  } catch (err) {
+    models = { ...models, state: 'error', message: String(err) };
+  }
+  modelsChanged();
+}
+
+function onModelLine(line) {
+  let event;
+  try { event = JSON.parse(line); } catch (err) { return; }
+  if (event.type !== 'models') return;
+  if (event.state === 'progress') models = { ...models, model: event.model, done: event.done, total: event.total };
+  else if (event.state === 'done') models = { ...models, state: 'done' };
+  else if (event.state === 'error') models = { ...models, state: 'error', model: event.model, message: event.message };
+  modelsChanged();
+}
+
+function onModelOut(note) {
+  const data = note.userInfo.objectForKey($.NSFileHandleNotificationDataItem);
+  if (!data || Number(data.length) === 0) return; // 程式結束，等 modelEnded: 處理
+  note.object.readInBackgroundAndNotify;
+  modelBuffer += ObjC.unwrap($.NSString.alloc.initWithDataEncoding(data, $.NSUTF8StringEncoding)) || '';
+  const lines = modelBuffer.split('\n');
+  modelBuffer = lines.pop();
+  for (const line of lines) if (line.trim()) onModelLine(line.trim());
+}
+
+function onModelEnded() {
+  if (modelBuffer.trim()) onModelLine(modelBuffer.trim());
+  modelBuffer = '';
+  const code = modelTask ? Number(modelTask.terminationStatus) : 1;
+  modelTask = null;
+  if (models.state === 'downloading') models = code === 0 ? { ...models, state: 'done' } : { ...models, state: 'error', message: t(`下載程式結束（${code}）`, `The download ended (${code})`) };
+  modelsChanged();
+  if (quitting) return;
+  if (models.state === 'done') {
+    const next = afterModels;
+    afterModels = null;
+    if (next) next();
+  } else {
+    view = { ...view, state: 'error', message: t(`本機辨識模型沒下載成功：${models.message}（60 秒後再試）`, `Couldn't download the on-device model: ${models.message} (retrying in 60 s)`) };
+    refresh();
+    $.NSTimer.scheduledTimerWithTimeIntervalTargetSelectorUserInfoRepeats(60, controller, 'modelRetry:', $(), false);
+  }
+}
+
+// ── 第一次設定畫面（app/onboarding.js）：新裝（還沒有設定檔）或上次沒走完（onboarding 檔還在）才自動出現；
+// 選單「設定精靈…」隨時可以再打開。VOICE_DICTATION_ONBOARDING=1／0 強制出現／不出現（測試用）
+function needsOnboarding() {
+  const forced = ObjC.unwrap($.NSProcessInfo.processInfo.environment.objectForKey('VOICE_DICTATION_ONBOARDING'));
+  if (forced) return forced === '1';
+  if (fm().fileExistsAtPath(statePath('onboarding'))) return true;
+  return !fm().fileExistsAtPath(statePath('config.json')) && !fm().fileExistsAtPath(statePath('onboarded'));
+}
+
+function showOnboarding() {
+  if (typeof openOnboarding !== 'function') {
+    const code = $.NSString.stringWithContentsOfFileEncodingError(`${BUILD.repo}/app/onboarding.js`, $.NSUTF8StringEncoding, null);
+    if (!code || code.isNil()) { startWithModels(); return; }
+    (0, eval)(ObjC.unwrap(code));
+  }
+  openOnboarding();
+}
+
+// 下載版先補模型再帶起常駐程式；用 install.sh 裝的模型 install.sh 下載過了，直接帶起
+function startWithModels() {
+  if (BUILD.bundled) runModels(startListener);
+  else startListener();
+}
+
+// 第一次設定畫面（app/onboarding.js）另外 eval，看不到這裡的 let／const：要讀的狀態從這裡拿
+function uiState() {
+  return { view, models, settings, hearing, working, running: !!task, quitting };
+}
+
+function setUiState(state) {
+  view = { ...view, state, message: '' };
+  refresh();
+}
+
+// 選單列的 JarvisVoice 標誌放大 scale 倍（範本圖，顏色跟著系統），第一次設定畫面用
+function brandImage(scale) {
+  const image = $.NSImage.alloc.initWithSize($.NSMakeSize(ICON_W * scale, ICON_H * scale));
+  image.lockFocus;
+  const zoom = $.NSAffineTransform.transform;
+  zoom.scaleBy(scale);
+  zoom.concat;
+  drawBrand();
+  image.unlockFocus;
+  image.setTemplate(true);
+  return image;
+}
+
 function quitApp() {
   quitting = true;
   if (task) task.terminate;
+  if (modelTask) modelTask.terminate;
+  if (typeof closeOnboardingTasks === 'function') closeOnboardingTasks();
   if (loginTask) loginTask.terminate;
   if (keyTask) keyTask.terminate;
   $.NSApplication.sharedApplication.terminate($());
@@ -1021,6 +1161,10 @@ ObjC.registerSubclass({
     'stdout:': { types: ['void', ['id']], implementation(note) { onStdout(note); } },
     'ended:': { types: ['void', ['id']], implementation() { onEnded(); } },
     'restart:': { types: ['void', ['id']], implementation() { startListener(); } },
+    'modelOut:': { types: ['void', ['id']], implementation(note) { onModelOut(note); } },
+    'modelEnded:': { types: ['void', ['id']], implementation() { onModelEnded(); } },
+    'modelRetry:': { types: ['void', ['id']], implementation() { runModels(); } },
+    'onboarding:': { types: ['void', ['id']], implementation() { showOnboarding(); } },
     'dumpFrame:': { types: ['void', ['id']], implementation() { dumpFrame(); } },
     'flashEnd:': { types: ['void', ['id']], implementation() { if (flash && Date.now() >= flash.until) { flash = null; refresh(); } } },
     'animate:': { types: ['void', ['id']], implementation() { refresh(); } },
@@ -1093,6 +1237,7 @@ function startUI() {
   menu.addItem(keysItem);
   cubelvItem = menuItem(t('用 CubeLV 登入…', 'Sign in with CubeLV…'), 'cubelvLogin:');
   menu.addItem(cubelvItem);
+  menu.addItem(menuItem(t('設定精靈…（權限、試講、AI 整理）', 'Setup Guide… (permissions, test, AI cleanup)'), 'onboarding:'));
   menu.addItem(menuItem(t('說明', 'Help'), 'openGuide:'));
   menu.addItem($.NSMenuItem.separatorItem);
   menu.addItem(menuItem(t('結束 JarvisVoice', 'Quit JarvisVoice'), 'quitApp:'));
@@ -1100,5 +1245,5 @@ function startUI() {
   refreshSettings();
   refresh();
   $.NSTimer.scheduledTimerWithTimeIntervalTargetSelectorUserInfoRepeats(2, controller, 'dumpFrame:', $(), false);
-  startListener();
+  if (needsOnboarding()) { view = { ...view, state: 'setup' }; refresh(); showOnboarding(); } else startWithModels();
 }

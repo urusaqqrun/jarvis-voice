@@ -12,8 +12,6 @@ STATE="${VOICE_DICTATION_STATE_DIR:-$HOME/.voice-dictation}"
 CONFIG="$STATE/config.json"
 APP="${VOICE_DICTATION_APP:-$HOME/Applications/JarvisVoice.app}"
 AGENT="$HOME/Library/LaunchAgents/com.urusa.voice-dictation.plist"
-MODEL_NAME="sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17"
-MODEL_URL="https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/$MODEL_NAME.tar.bz2"
 ENGINE="${1:-}"
 
 say() { printf '\033[1m%s\033[0m\n' "$*"; }
@@ -53,29 +51,16 @@ if [[ -z "$ENGINE" ]]; then
   fi
 fi
 
+# 模型網址與下載都在 bin/models.mjs（.app 第一次打開的設定畫面也用它），缺的才下載
+export VOICE_DICTATION_STATE_DIR="$STATE"
 if [[ "$ENGINE" == local ]]; then
-  if [[ -f "$STATE/models/$MODEL_NAME/model.int8.onnx" ]]; then
-    say "本機模型已經在了"
-  else
-    say "下載本機辨識模型 SenseVoice-Small（約 155 MB，來源 k2-fsa/sherpa-onnx）"
-    TMP="$(mktemp -d)"
-    trap 'rm -rf "$TMP"' EXIT
-    curl -fL --retry 3 --progress-bar -o "$TMP/model.tar.bz2" "$MODEL_URL"
-    mkdir -p "$STATE/models"
-    tar -xjf "$TMP/model.tar.bz2" -C "$STATE/models"
-    [[ -f "$STATE/models/$MODEL_NAME/model.int8.onnx" ]] || fail "模型解開後找不到 model.int8.onnx。"
-  fi
+  say "本機辨識模型 SenseVoice-Small（約 155 MB，來源 k2-fsa/sherpa-onnx）"
+  node "$DIR/bin/models.mjs" local || fail "本機辨識模型沒下載成功，再跑一次 install.sh。"
 fi
 
 # 「只聽我的聲音」用的聲紋模型（CAM++ 中文，約 28 MB）：不論哪個引擎都裝，選單開了才會用
-SPEAKER_MODEL="$STATE/models/speaker/campplus_zh.onnx"
-if [[ ! -f "$SPEAKER_MODEL" ]]; then
-  say "下載聲紋模型 CAM++（約 28 MB，來源 k2-fsa/sherpa-onnx）"
-  mkdir -p "$STATE/models/speaker"
-  curl -fL --retry 3 --progress-bar -o "$SPEAKER_MODEL.part" \
-    "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/3dspeaker_speech_campplus_sv_zh-cn_16k-common.onnx" \
-    && mv "$SPEAKER_MODEL.part" "$SPEAKER_MODEL" || say "聲紋模型沒下載成功（之後重跑 install.sh 再裝）；「只聽我的聲音」先不能用"
-fi
+say "聲紋模型 CAM++（約 28 MB，來源 k2-fsa/sherpa-onnx）"
+node "$DIR/bin/models.mjs" speaker || say "聲紋模型沒下載成功（之後重跑 install.sh 再裝）；「只聽我的聲音」先不能用"
 
 say "設定檔：${CONFIG}（引擎 ${ENGINE}）"
 node - "$CONFIG" "$ENGINE" <<'EOF'

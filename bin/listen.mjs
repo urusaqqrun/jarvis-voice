@@ -315,10 +315,13 @@ async function frontApp() {
   };
 }
 
-// 這個 app 在最前面時要不要收音（VOICE_DICTATION_APPS 給測試用：只認這些）
+// 這個 app 在最前面時要不要收音（VOICE_DICTATION_APPS 給測試用：只認這些）。
+// 選單列小程式自己預設不收音；第一次設定畫面的「講一句試試」那一頁（app/onboarding.js 放了 try-here）例外
+const OWN_APP = 'com.urusa.voice-dictation';
+const TRY_HERE = join(STATE_DIR, 'try-here');
 const allowed = (bundle) => (process.env.VOICE_DICTATION_APPS
   ? process.env.VOICE_DICTATION_APPS.split(',').includes(bundle)
-  : appAllowed(config, bundle));
+  : appAllowed(config, bundle) || (bundle === OWN_APP && existsSync(TRY_HERE)));
 
 // ---- 收音與切句 ----
 
@@ -630,12 +633,15 @@ function logFfmpeg(line, name) {
 
 // 收麥克風用原生小幫手（bin/mic-capture.swift，AVAudioEngine）：ffmpeg 的 avfoundation 會掉約一成聲音
 // （10/25 實測 20 秒只交出 17.9 秒，小幫手 20.0 秒），講話中間少一截、句尾變「……」。
-// 第一次用 swiftc 編到 <狀態資料夾>/bin/mic-capture（原始檔改了會重編）；沒有 swiftc、編不過或開不起來就照舊用 ffmpeg。
+// 下載的 .app（app/package.sh 打的）帶著編好、簽好章的小幫手，放在原始檔旁邊，直接用；
+// 用 install.sh 裝的第一次用 swiftc 編到 <狀態資料夾>/bin/mic-capture（原始檔改了會重編）。沒有 swiftc、編不過或開不起來就照舊用 ffmpeg。
 const MIC_HELPER_SRC = join(import.meta.dirname, 'mic-capture.swift');
+const MIC_HELPER_BUNDLED = join(import.meta.dirname, 'mic-capture');
 const MIC_HELPER = join(STATE_DIR, 'bin', 'mic-capture');
 let micHelperBroken = false; // 這次執行開不起來過：之後都用 ffmpeg
 function micHelper() {
   if (micHelperBroken || process.env.VOICE_DICTATION_FFMPEG_CAPTURE) return null;
+  if (existsSync(MIC_HELPER_BUNDLED)) return MIC_HELPER_BUNDLED;
   try {
     if (existsSync(MIC_HELPER) && statSync(MIC_HELPER).mtimeMs >= statSync(MIC_HELPER_SRC).mtimeMs) return MIC_HELPER;
     log('編譯原生收音小幫手（第一次約 10 秒）');

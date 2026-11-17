@@ -15,7 +15,7 @@ export function createLocalEngine({ model, language = 'auto', threads = 2, onFin
   let resampler = null;
   let failed = '';
   try {
-    if (!existsSync(modelFile) || !existsSync(tokens)) throw new Error(`找不到本機模型：${model}（重跑 install.sh 會下載）`);
+    if (!existsSync(modelFile) || !existsSync(tokens)) throw new Error(`找不到本機模型：${model}（下載的 app 結束再打開會自己下載；用 install.sh 裝的重跑一次）`);
     sherpa = require('sherpa-onnx-node');
     recognizer = new sherpa.OfflineRecognizer({
       featConfig: { sampleRate: 16000, featureDim: 80 },
