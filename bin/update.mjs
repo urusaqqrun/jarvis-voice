@@ -6,7 +6,7 @@
 //     → { state: 'progress', done, total } … { state: 'ready' }（收到就結束選單列小程式，換新與重開由背景的小腳本做）
 // 只連 GitHub（api.github.com 與 Release 的下載點），不送任何使用資料。JARVIS_UPDATE_URL 可指定別的 Release 網址（測試用）。
 
-import { execFileSync, spawn } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { accessSync, constants, createWriteStream, existsSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -41,10 +41,10 @@ export async function check(current) {
   return pickUpdate(await res.json(), current);
 }
 
-// 簽章的 Team ID（codesign 印在 stderr）
-function teamOf(app) {
-  const out = execFileSync('/usr/bin/codesign', ['-dv', app], { encoding: 'utf8', stdio: ['ignore', 'ignore', 'pipe'] }).toString();
-  return out.match(/^TeamIdentifier=(.+)$/m)?.[1] ?? '';
+// 簽章的 Team ID（codesign -dv 印在 stderr，execFileSync 只回 stdout，所以用 spawnSync）
+export function teamOf(app) {
+  const { stderr } = spawnSync('/usr/bin/codesign', ['-dv', app], { encoding: 'utf8' });
+  return `${stderr ?? ''}`.match(/^TeamIdentifier=(.+)$/m)?.[1] ?? '';
 }
 
 function bundleId(app) {

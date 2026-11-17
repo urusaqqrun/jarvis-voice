@@ -1058,6 +1058,7 @@ function onModelEnded() {
 let updateItem = null;
 let updateTask = null;
 let updateBuffer = '';
+let updateParts = { out: false, task: false }; // 輸出讀完了沒、程式結束了沒：兩個都到才收尾（結束的通知可能比最後一行先到）
 let update = { state: 'idle', version: '', url: '', done: 0, total: 0 }; // idle | checking | available | installing
 const APP_VERSION = ObjC.unwrap($.NSBundle.mainBundle.infoDictionary.objectForKey('CFBundleShortVersionString')) || '';
 
@@ -1095,6 +1096,7 @@ function runUpdate(args) {
     u.launch;
     updateTask = u;
     updateBuffer = '';
+    updateParts = { out: false, task: false };
   } catch (err) {
     uiLog(`更新程式開不起來：${err}`);
   }
@@ -1124,7 +1126,7 @@ function onUpdateLine(line) {
 
 function onUpdateOut(note) {
   const data = note.userInfo.objectForKey($.NSFileHandleNotificationDataItem);
-  if (!data || Number(data.length) === 0) return;
+  if (!data || Number(data.length) === 0) { updateDone('out'); return; } // 輸出讀完了
   note.object.readInBackgroundAndNotify;
   updateBuffer += ObjC.unwrap($.NSString.alloc.initWithDataEncoding(data, $.NSUTF8StringEncoding)) || '';
   const lines = updateBuffer.split('\n');
@@ -1133,6 +1135,14 @@ function onUpdateOut(note) {
 }
 
 function onUpdateEnded() {
+  updateDone('task');
+}
+
+// 輸出讀完、程式也結束了才收尾：最後一行（ready、出錯的原因）一定處理到
+function updateDone(part) {
+  if (!updateTask) return;
+  updateParts[part] = true;
+  if (!updateParts.out || !updateParts.task) return;
   if (updateBuffer.trim()) onUpdateLine(updateBuffer.trim());
   updateBuffer = '';
   updateTask = null;

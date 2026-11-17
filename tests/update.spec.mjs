@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { promisify } from 'node:util';
-import { assertReplaceable, newer, pickUpdate } from '../bin/update.mjs';
+import { assertReplaceable, newer, pickUpdate, teamOf } from '../bin/update.mjs';
 
 const repo = new URL('..', import.meta.url).pathname.replace(/\/$/, '');
 const mac = process.platform === 'darwin';
@@ -38,6 +38,12 @@ test('換不了的位置先擋下：還在 .dmg、被系統搬到唯讀的地方
   assert.throws(() => assertReplaceable('/private/var/folders/x/AppTranslocation/ABC/d/JarvisVoice.app'), /拖進「應用程式」/);
   const dir = mkdtempSync(join(tmpdir(), 'jarvis-app-'));
   assert.doesNotThrow(() => assertReplaceable(join(dir, 'JarvisVoice.app')));
+});
+
+test('Team ID：讀得到簽章的 Team ID，沒有也不出錯（codesign 把它印在 stderr）', { skip: !mac && '要 codesign' }, () => {
+  const team = teamOf(process.execPath);
+  assert.equal(typeof team, 'string');
+  assert.equal(teamOf(join(tmpdir(), 'jarvis-沒有這個檔')), '');
 });
 
 test('check：照 Release API 回有沒有新版（這裡是本機假的 Release）', async () => {
