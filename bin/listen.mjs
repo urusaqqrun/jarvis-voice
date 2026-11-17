@@ -35,7 +35,7 @@ import { join } from 'node:path';
 import { monitorEventLoopDelay } from 'node:perf_hooks';
 import { createAx } from './ax.mjs';
 import { createMacAgentScreen } from './agent-screen.mjs';
-import { TurnSplitter, BATCH_BYTES, SAMPLE_RATE, findFfmpeg } from './common.mjs';
+import { TurnSplitter, BATCH_BYTES, SAMPLE_RATE, createOutputWatch, findFfmpeg } from './common.mjs';
 import { STATE_DIR, aiAvailable, aiKey, appAllowed, configMtime, cubelvAccount, isLiveModel, loadConfig, styleFor } from './config.mjs';
 import { DEFAULT_MODELS, PROVIDER_NAMES, editSegment, service } from './editor.mjs';
 import { DEFAULT_URLS } from '../core/providers.mjs';
@@ -1303,6 +1303,8 @@ async function drainOutput() {
 
 // ---- 主迴圈 ----
 
+const outputStuck = createOutputWatch(); // 選單列 30 秒沒讀 stdout
+
 function shutdown(code) {
   if (stopping) return;
   stopping = true;
@@ -1312,6 +1314,7 @@ function shutdown(code) {
   releaseLock();
   setState('off');
   process.stdout.write('', () => process.exit(code));
+  setTimeout(() => process.exit(code), 2000); // 選單列沒在讀 stdout 時，上面那行永遠等不到寫完
 }
 
 async function tick() {
@@ -1319,6 +1322,12 @@ async function tick() {
   reloadConfigIfChanged();
   const paused = existsSync(PAUSED);
   if (appMode && process.ppid !== parentPid) { shutdown(0); return; } // 選單列小程式不在了
+  if (appMode && outputStuck(process.stdout.writableLength)) {
+    // 選單列還在但沒在讀：狀態、小框都送不過去。結束讓選單列 3 秒後重開，換一條新的 pipe
+    log(`選單列 30 秒沒讀 stdout（還有 ${Math.round(process.stdout.writableLength / 1024)} KB 送不出去，pipe 已經塞滿）：結束，等選單列重開`);
+    shutdown(0);
+    return;
+  }
   const front = always ? { bundle: 'test', pid: 0 } : await frontApp();
   if (!always) lastFront = { ...front, at: Date.now() };
   const active = !paused && (always || allowed(front.bundle));

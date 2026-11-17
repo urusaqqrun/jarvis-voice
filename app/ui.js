@@ -56,7 +56,7 @@ let toggleItem = null;
 let controller = null;
 let task = null;
 let quitting = false;
-let buffer = '';
+let pending = $.NSMutableData.data; // 常駐程式送來、還沒湊成整行的 byte
 let view = { state: 'starting', message: '', engine: '' };
 let hearing = false; // 常駐程式說聽到人聲
 let working = false; // 常駐程式說有句子在轉寫、整理或等著寫（辨識中）
@@ -93,6 +93,21 @@ let commandsItem = null;
 
 const statePath = (name) => `${BUILD.state}/${name}`;
 const fm = () => $.NSFileManager.defaultManager;
+
+// 介面自己的 log（ui.log）：處理常駐程式送來的訊息出錯時記下來，跟 listen.log 一樣超過 1MB 就清空
+function uiLog(message) {
+  try {
+    const path = statePath('ui.log');
+    const exists = fm().fileExistsAtPath(path);
+    if (!exists || Number(fm().attributesOfItemAtPathError(path, null).fileSize) > 1_000_000) {
+      $('').writeToFileAtomicallyEncodingError(path, true, $.NSUTF8StringEncoding, null);
+    }
+    const file = $.NSFileHandle.fileHandleForWritingAtPath(path);
+    file.seekToEndOfFile;
+    file.writeData($(`${new Date().toISOString()} ${message}\n`).dataUsingEncoding($.NSUTF8StringEncoding));
+    file.closeFile;
+  } catch (err) { /* 寫不進就算了 */ }
+}
 
 function label() {
   const name = ENGINE_NAMES[view.engine] ? t(`（${ENGINE_NAMES[view.engine]}）`, ` (${ENGINE_NAMES[view.engine]})`) : '';
@@ -880,14 +895,27 @@ function onLine(line) {
   }
 }
 
+const NEWLINE = $('\n').dataUsingEncoding($.NSUTF8StringEncoding);
+
+// 常駐程式的 stdout：一行一個 JSON 事件。先接著讀再處理，哪一行處理出錯只記進 ui.log，不會從此不讀
+// （11/13 起選單列不讀，pipe 塞滿 64KB：圖示停在「啟動中」、講話時小框不出來，聽寫照常）。
+// 照 byte 找最後一個換行，只把整行轉成字：中文字被切在兩次讀之間時留到下一次湊齊，不再整塊轉不出來丟掉
 function onStdout(note) {
   const data = note.userInfo.objectForKey($.NSFileHandleNotificationDataItem);
   if (!data || Number(data.length) === 0) return; // 常駐程式結束，等 ended: 處理
-  buffer += ObjC.unwrap($.NSString.alloc.initWithDataEncoding(data, $.NSUTF8StringEncoding)) || '';
-  const lines = buffer.split('\n');
-  buffer = lines.pop();
-  for (const line of lines) if (line.trim()) onLine(line.trim());
   note.object.readInBackgroundAndNotify;
+  pending.appendData(data);
+  const found = pending.rangeOfDataOptionsRange(NEWLINE, 1, $.NSMakeRange(0, Number(pending.length))); // 1：從後面找
+  if (Number(found.length) === 0) return; // 還沒有一整行
+  const end = Number(found.location) + 1;
+  const whole = pending.subdataWithRange($.NSMakeRange(0, end));
+  pending = $.NSMutableData.dataWithData(pending.subdataWithRange($.NSMakeRange(end, Number(pending.length) - end)));
+  const text = ObjC.unwrap($.NSString.alloc.initWithDataEncoding(whole, $.NSUTF8StringEncoding));
+  if (typeof text !== 'string') { uiLog(`常駐程式送來的 ${end} bytes 轉不成 UTF-8，跳過`); return; }
+  for (const line of text.split('\n')) {
+    if (!line.trim()) continue;
+    try { onLine(line.trim()); } catch (err) { uiLog(`處理常駐程式的訊息出錯：${err}；訊息：${line.trim().slice(0, 300)}`); }
+  }
 }
 
 function scheduleRestart(seconds) {
@@ -915,6 +943,7 @@ function startListener() {
     t.setArguments($([LISTEN, '--app']));
     t.setEnvironment(childEnv());
     const pipe = $.NSPipe.pipe;
+    pending = $.NSMutableData.data; // 上一個常駐程式沒送完的半行不接到這一個
     t.setStandardOutput(pipe);
     t.setStandardError($.NSFileHandle.fileHandleWithNullDevice);
     const reader = pipe.fileHandleForReading;
