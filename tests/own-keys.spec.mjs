@@ -218,7 +218,7 @@ test('存完切過去：DeepSeek、Claude 切 AI 整理；OpenAI 不動本機辨
   assert.deepEqual(useOwnKey({}, 'openai', { aiWorks: false }), { ai: { enabled: true, provider: 'openai' } });
   assert.deepEqual(useOwnKey({ ai: { enabled: false } }, 'openai', { aiWorks: false }), { ai: { enabled: false } }); // 自己關掉的不幫他打開
   assert.deepEqual(useOwnKey({ ai: { provider: 'deepseek' } }, 'openai', { ai: true }), { ai: { enabled: true, provider: 'openai' } });
-  assert.deepEqual(useOwnKey({ engine: 'cubelv' }, 'openai', { engine: true, aiWorks: true }), { engine: 'openai' });
+  assert.deepEqual(useOwnKey({ engine: 'account' }, 'openai', { engine: true, aiWorks: true }), { engine: 'openai' });
   assert.deepEqual(useOwnKey({ engine: 'local' }, 'jev', { engine: true, ai: true }), { engine: 'local' });
   assert.deepEqual(afterClear({ engine: 'openai' }, 'openai', { stillHasKey: false }), { engine: 'local' });
   assert.deepEqual(afterClear({ engine: 'openai' }, 'openai', { stillHasKey: true }), { engine: 'openai' });
@@ -341,7 +341,7 @@ test('設定檔壞掉：key 照樣測、照樣存，只是不切換，也不蓋�
   }
 });
 
-test('選單（app/ui.js）：語法沒問題；每個選單項目、通知、計時器用到的 selector 都有登記；「設定自己的 key…」排在「用 CubeLV 登入…」前面', () => {
+test('選單（app/ui.js）：語法沒問題；每個選單項目、通知、計時器用到的 selector 都有登記；「設定自己的 key…」排在「登入 JarvisVoice…」前面', () => {
   const file = join(repo, 'app/ui.js');
   execFileSync(process.execPath, ['--check', file]);
   const ui = readFileSync(file, 'utf8');
@@ -350,20 +350,20 @@ test('選單（app/ui.js）：語法沒問題；每個選單項目、通知、�
   const cap = (s) => `${s[0].toUpperCase()}${s.slice(1)}`;
   const engines = keysOf('ENGINE_ITEMS');
   const providers = keysOf('AI_NAMES');
-  assert.deepEqual(engines, ['local', 'openai', 'cubelv', 'parallelsandbox']);
-  assert.deepEqual(providers, ['openai', 'deepseek', 'claude', 'cubelv']);
+  assert.deepEqual(engines, ['local', 'openai', 'account', 'parallelsandbox']);
+  assert.deepEqual(providers, ['openai', 'deepseek', 'claude', 'account']);
   const used = new Set([
     ...[...ui.matchAll(/menuItem\([^;]*?, '([A-Za-z]+:)'\)/g)].map((m) => m[1]),
     ...[...ui.matchAll(/controller, '([A-Za-z]+:)'/g)].map((m) => m[1]),
     ...engines.map((e) => `engine${cap(e)}:`),
     ...providers.map((p) => `ai${cap(p)}:`),
   ]);
-  for (const selector of ['ownKeys:', 'keyOut:', 'keyEnded:', 'cubelvLogin:', 'quitApp:']) assert.ok(used.has(selector), `${selector} 沒被用到`);
+  for (const selector of ['ownKeys:', 'keyOut:', 'keyEnded:', 'accountLogin:', 'quitApp:']) assert.ok(used.has(selector), `${selector} 沒被用到`);
   for (const selector of used) assert.ok(registered.has(selector), `${selector} 沒有在 VoiceDictationController 登記`);
   const keysAt = ui.indexOf('menu.addItem(keysItem)');
-  const cubelvAt = ui.indexOf('menu.addItem(cubelvItem)');
-  assert.ok(keysAt > 0 && keysAt < cubelvAt, '「設定自己的 key…」要排在「用 CubeLV 登入…」前面');
-  assert.equal(ui.slice(keysAt, cubelvAt).split('menu.addItem').length, 2, '兩個中間不夾別的項目');
+  const accountAt = ui.indexOf('menu.addItem(accountItem)');
+  assert.ok(keysAt > 0 && keysAt < accountAt, '「設定自己的 key…」要排在「登入 JarvisVoice…」前面');
+  assert.equal(ui.slice(keysAt, accountAt).split('menu.addItem').length, 2, '兩個中間不夾別的項目');
   // key 從管子送進 set-key.mjs，不放在參數裡
   assert.match(ui, /setArguments\(\$\(\[SET_KEY, \.\.\.args\]\)\)/);
   assert.match(ui, /writer\.writeData\(\$\(key\)/);

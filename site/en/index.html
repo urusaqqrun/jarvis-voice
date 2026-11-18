@@ -17,8 +17,7 @@
 <link rel="alternate" hreflang="zh-Hant" href="https://jarvis-voice.com/">
 <link rel="alternate" hreflang="en" href="https://jarvis-voice.com/en/">
 <link rel="alternate" hreflang="x-default" href="https://jarvis-voice.com/en/">
-<!-- 跟 CubeLV、平行沙盒同一家公司：組織用 cubelv.com 那一個 @id -->
-<script type="application/ld+json">{"@context": "https://schema.org", "@graph": [{"@type": "Organization", "@id": "https://cubelv.com/#organization", "name": "Runvo LLC", "url": "https://cubelv.com/en/", "logo": "https://cubelv.com/press/logos/cubelv-app-icon-512.png"}, {"@type": "WebSite", "@id": "https://jarvis-voice.com/#website", "name": "JarvisVoice", "alternateName": "Jarvis Voice", "url": "https://jarvis-voice.com/en/", "inLanguage": "en", "publisher": {"@id": "https://cubelv.com/#organization"}}, {"@type": "SoftwareApplication", "name": "JarvisVoice", "operatingSystem": "macOS", "applicationCategory": "UtilitiesApplication", "url": "https://jarvis-voice.com/en/", "description": "A macOS menu bar app that listens on its own and types what you say into the app you're using; say a command and it operates the app for you.", "inLanguage": "en", "license": "https://opensource.org/licenses/MIT", "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"}, "publisher": {"@id": "https://cubelv.com/#organization"}}]}</script>
+<script type="application/ld+json">{"@context": "https://schema.org", "@graph": [{"@type": "Organization", "@id": "https://jarvis-voice.com/#organization", "name": "Runvo LLC", "url": "https://jarvis-voice.com/", "logo": "https://jarvis-voice.com/icon.png"}, {"@type": "WebSite", "@id": "https://jarvis-voice.com/#website", "name": "JarvisVoice", "alternateName": "Jarvis Voice", "url": "https://jarvis-voice.com/en/", "inLanguage": "en", "publisher": {"@id": "https://jarvis-voice.com/#organization"}}, {"@type": "SoftwareApplication", "name": "JarvisVoice", "operatingSystem": "macOS", "applicationCategory": "UtilitiesApplication", "url": "https://jarvis-voice.com/en/", "description": "A macOS menu bar app that listens on its own and types what you say into the app you're using; say a command and it operates the app for you.", "inLanguage": "en", "license": "https://opensource.org/licenses/MIT", "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"}, "publisher": {"@id": "https://jarvis-voice.com/#organization"}}]}</script>
 <style>
   :root {
     --bg: #fbfaf8;
@@ -77,8 +76,6 @@
   .card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 22px; }
   .card .tag { font-size: 14px; font-weight: 600; color: var(--accent); margin-bottom: 6px; }
   .card p { color: var(--muted); font-size: 16px; margin: 0; }
-  #family .card .tag { color: var(--muted); }
-  #family .layers { margin: 20px 0 16px; }
 
   .example { display: grid; gap: 16px; }
   .said, .wrote { padding: 16px 18px; border-radius: 12px; }
@@ -144,7 +141,7 @@
       <div class="card">
         <div class="tag">Layer 2</div>
         <h3>AI cleanup</h3>
-        <p>Finish a passage and the AI, looking at the text around your cursor, what's on screen, the app and the URL, turns it into what you meant to type: filler removed, self-corrections resolved, lists formatted, tone matched to the app, your own terms spelled right. Choose OpenAI, DeepSeek or Claude.</p>
+        <p>Finish a passage and the AI, looking at the text around your cursor, what's on screen, the app and the URL, turns it into what you meant to type: filler removed, self-corrections resolved, lists formatted, tone matched to the app, your own terms spelled right. Use your own OpenAI, DeepSeek or Claude key, or a JarvisVoice account.</p>
       </div>
       <div class="card">
         <div class="tag">Layer 3</div>
@@ -208,42 +205,29 @@
         <tr><td>Transcription (on-device)</td><td>Runs on your Mac</td><td>Free</td></tr>
         <tr><td>AI cleanup (DeepSeek, Claude or OpenAI)</td><td>About US$0.00003–0.00008 per passage</td><td>Under US$1</td></tr>
         <tr><td>Layer 3 decisions (Jev, optional)</td><td>About US$0.00001 each</td><td>About US$0.1</td></tr>
+        <tr><td>JarvisVoice account (transcription + AI cleanup)</td><td>No key; buy credits in the app. Transcription uses credits per recorded minute, AI cleanup by usage</td><td>Depends on the credit pack</td></tr>
       </table>
     </div>
-    <p class="note">You use your own keys and pay each provider directly. It's always listening, so people talking nearby get transcribed too; choose "Pause listening" in the menu during meetings or videos.</p>
+    <p class="note">With your own keys you pay each provider directly; if you'd rather not manage keys, choose "Sign in to JarvisVoice…" in the menu and buy credits under "Buy credits…" (paid through Stripe). It's always listening, so people talking nearby get transcribed too; choose "Pause listening" in the menu during meetings or videos.</p>
   </section>
 
   <section>
     <h2>Where your data goes</h2>
     <ul class="plain">
       <li>Audio: only segments with speech go to the transcription service you chose; with on-device recognition it never leaves your Mac.</li>
+      <li>With your own keys: audio and the text to clean up go straight to the provider you chose, never through us.</li>
+      <li>With a JarvisVoice account: audio and the text to clean up go to our server, which passes them to an AI model and returns the result; credits and payments go through Stripe.</li>
       <li>With AI cleanup on: 400 characters on each side of the cursor, the selected text, the last ~1,500 characters visible in the window, the app name, the window title and the URL go to the AI provider you chose.</li>
       <li>Layer 3: the names of the buttons, links and text fields on screen go to the decision maker (Jev or your AI provider).</li>
       <li>History, vocabulary, settings and keys stay on your Mac.</li>
     </ul>
+    <p class="note">See the <a href="privacy/">privacy policy</a> and <a href="terms/">terms of service</a>.</p>
   </section>
 
-  <section id="family">
-    <h2>One workflow with CubeLV and ParallelSandbox</h2>
-    <p>JarvisVoice is built by the same team as CubeLV and ParallelSandbox: Runvo LLC. JarvisVoice covers handing work off by talking: what you say goes into Claude Code, Codex or CubeLV. CubeLV turns the work into an app that runs every day and stops when you need to decide. Code changes go to ParallelSandbox, where several coding agents build in parallel and tested versions line up for you to try.</p>
-    <div class="layers">
-      <div class="card">
-        <div class="tag">Every day: AI follows the process</div>
-        <h3><a href="https://cubelv.com/en/">CubeLV</a></h3>
-        <p>Build your own automation app from one sentence. Agents do each step on schedule, and where you need to decide, a decision card stops and waits for you.</p>
-      </div>
-      <div class="card">
-        <div class="tag">Build: in parallel, tested before handoff</div>
-        <h3><a href="https://parallelsandbox.com/en/">ParallelSandbox</a></h3>
-        <p>Lets Claude Code and Codex work in parallel: each task is built and tested in its own box, and finished versions line up for you to try.</p>
-      </div>
-    </div>
-    <p class="note">Voice input in the CubeLV and ParallelSandbox apps uses the same core as JarvisVoice. To see one request go from spoken to shipped: <a href="https://cubelv.com/en/workflow/">how the three fit into one workflow</a>.</p>
-  </section>
 
   <footer>
     JarvisVoice is open source (MIT license) · <a href="https://github.com/urusaqqrun/jarvis-voice">GitHub</a><br>
-    Products by Runvo LLC: <a href="https://cubelv.com/en/">CubeLV</a> · <a href="https://parallelsandbox.com/en/">ParallelSandbox</a> · <a href="https://cubelv.com/en/workflow/">One complete workflow</a>
+    <a href="privacy/">Privacy policy</a> · <a href="terms/">Terms of service</a> · © Runvo LLC
   </footer>
 </main>
 </body>

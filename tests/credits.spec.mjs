@@ -40,9 +40,9 @@ async function fakeServer({ open = true } = {}) {
 // 狀態資料夾：設定檔指到假的後端，token 放檔案（不碰鑰匙圈）
 function stateFor(apiUrl) {
   const state = mkdtempSync(join(tmpdir(), 'jarvis-credits-'));
-  writeFileSync(join(state, 'config.json'), JSON.stringify({ cubelv: { apiUrl } }));
+  writeFileSync(join(state, 'config.json'), JSON.stringify({ account: { apiUrl } }));
   const host = new URL(apiUrl).host.replace(/[^\w.-]/g, '_');
-  writeFileSync(join(state, `cubelv-token-${host}.json`), JSON.stringify({
+  writeFileSync(join(state, `account-token-${host}.json`), JSON.stringify({
     accessToken: 'cvoice_at_test', refreshToken: 'cvoice_rt_test', expiresAt: Date.now() + 3600_000, clientId: 'client',
   }));
   return state;
@@ -96,7 +96,7 @@ test('還沒登入：回 not_logged_in，選單會先帶去登入', async () => 
   const { server, apiUrl } = await fakeServer();
   try {
     const state = mkdtempSync(join(tmpdir(), 'jarvis-credits-'));
-    writeFileSync(join(state, 'config.json'), JSON.stringify({ cubelv: { apiUrl } }));
+    writeFileSync(join(state, 'config.json'), JSON.stringify({ account: { apiUrl } }));
     const result = await credits(state, 'account');
     assert.equal(result.code, 'not_logged_in');
   } finally {
@@ -113,7 +113,7 @@ test('選單那一行：沒登入寫「不用 key」，有登入寫剩幾點、�
       globalThis.BUILD = { node: '/usr/bin/false', repo: ${JSON.stringify(repo)}, state: ${JSON.stringify(state)}, bundled: true };
       (0, eval)(ObjC.unwrap($.NSString.stringWithContentsOfFileEncodingError(BUILD.repo + '/app/ui.js', $.NSUTF8StringEncoding, null)));
       const seen = [creditsTitle()];
-      onLine('{"type":"settings","cubelv":{"loggedIn":true,"email":"a@example.com"}}');
+      onLine('{"type":"settings","account":{"loggedIn":true,"email":"a@example.com"}}');
       seen.push(creditsTitle());
       onCreditsLine('{"type":"credits","state":"account","balance":1234.5,"creditsPerMinute":4.5,"packages":[]}');
       seen.push(creditsTitle());

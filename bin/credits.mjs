@@ -1,21 +1,21 @@
 #!/usr/bin/env node
-// 選單「購買點數（不用 key）…」做的事（app/ui.js 帶起來，做完就結束）。要先用 CubeLV 登入（選單會先帶去登入）。
+// 選單「購買點數（不用 key）…」做的事（app/ui.js 帶起來，做完就結束）。要先登入 JarvisVoice 帳號（選單會先帶去登入）。
 //   node ~/jarvis-voice/bin/credits.mjs account         剩幾點、每分鐘扣幾點、可以買的點數包
 //   node ~/jarvis-voice/bin/credits.mjs buy <package>   開 Stripe 付款頁，回網址（選單用瀏覽器打開）；付完點數自己加進帳號
-// 點數、價格、付款都是 CubeLV 那一套（跟 CubeLV 網頁版買的同一種點數），這裡只是在 JarvisVoice 裡買。
+// 點數、價格、付款都是帳號那一套（跟網頁版買的同一種點數），這裡只是在 JarvisVoice 裡買。
 // stdout 一行一個 JSON：{ type: 'credits', state: 'account', email, balance, creditsPerMinute, packages }
 //   | { state: 'checkout', url } | { state: 'error', code, message }（code：not_logged_in、login_expired、unsupported 或空的）
 
 import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { loadConfig } from './config.mjs';
-import { cubelvSession } from './cubelv.mjs';
+import { accountSession } from './account.mjs';
 
 const emit = (event) => process.stdout.write(`${JSON.stringify({ type: 'credits', ...event })}\n`);
 
-export async function runCredits(args, { apiUrl = loadConfig().config.cubelv.apiUrl } = {}) {
+export async function runCredits(args, { apiUrl = loadConfig().config.account.apiUrl } = {}) {
   const [command, packageId] = args;
-  const session = cubelvSession(apiUrl);
+  const session = accountSession(apiUrl);
   if (command === 'account') {
     const account = await session.account();
     return {

@@ -14,7 +14,7 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tryCleanup, tryDecider } from './checks.mjs';
 import { STATE_DIR, aiAvailable, aiKey, loadConfig } from './config.mjs';
-import { updateConfigFile } from './cubelv-login.mjs';
+import { updateConfigFile } from './login.mjs';
 import { createDecider } from './decide.mjs';
 import { PROVIDER_NAMES } from './editor.mjs';
 import { OWN_KEY_NAMES, OWN_KEY_PROVIDERS, cleanKey, ownKeyStore } from './own-keys.mjs';
@@ -22,7 +22,7 @@ import { OWN_KEY_NAMES, OWN_KEY_PROVIDERS, cleanKey, ownKeyStore } from './own-k
 const emit = (event) => process.stdout.write(`${JSON.stringify({ type: 'key', ...event })}\n`);
 const zh = /^zh/i.test(process.env.VOICE_DICTATION_LANG || process.env.LANG || '');
 const t = (zhText, enText) => (zh ? zhText : enText);
-const ENGINE_NAMES = { local: t('本機辨識', 'on-device'), openai: 'OpenAI', cubelv: 'CubeLV', parallelsandbox: t('平行沙盒', 'ParallelSandbox') };
+const ENGINE_NAMES = { local: t('本機辨識', 'on-device'), openai: 'OpenAI', account: t('JarvisVoice 帳號', 'JarvisVoice account'), parallelsandbox: t('平行沙盒', 'ParallelSandbox') };
 
 // 實際打一次：OpenAI、DeepSeek、Claude 跑一段 AI 整理，Jev 跑一題第三層決策（都跟 ai-check 同一套）。回 { ms }，不通丟錯
 export async function testKey(provider, key, config) {

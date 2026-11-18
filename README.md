@@ -51,7 +51,7 @@ Pick one of three ways to power transcription and AI cleanup; you can switch any
 
 - **On-device**: free, and your audio never leaves your Mac (the default; `./install.sh local` from source).
 - **Your own keys**: OpenAI transcription is the most accurate; AI cleanup can use OpenAI, DeepSeek or Claude. Choose "Set up your own key…" in the menu, pick a provider and paste your key: it's tested first and saved to the macOS Keychain only if it works (never to the config file), and AI cleanup switches to that provider; OpenAI transcription only switches if you tick the box, otherwise it stays as it is, e.g. on-device (see [Set up your own key](#set-up-your-own-key) below). You can also let your AI set it up in step 2 (you paste the key yourself; the AI never sees it), or add `"apiKeyFile": "<file with your key>"` under `openai` in `~/.voice-dictation/config.json`.
-- **Sign in with CubeLV**: no keys needed. Choose "Sign in with CubeLV…" in the menu, and transcription, AI cleanup and voice-command decisions use your [CubeLV](https://cubelv.com) account's credits (see [Sign in with CubeLV](#sign-in-with-cubelv) below).
+- **JarvisVoice account**: no keys needed, and you buy credits right in the app. Choose "Sign in to JarvisVoice…" in the menu, and transcription, AI cleanup and voice-command decisions use your account's credits (see [JarvisVoice account](#jarvisvoice-account) below).
 
 **Step 2: ask your AI to set it up**
 
@@ -80,7 +80,7 @@ The AI will:
 - **Bubble next to the cursor**: while you talk it shows what it heard that isn't in the field yet (a sentence under 1 s, one whose voiceprint check isn't done, or one the preview hasn't typed yet); once everything is in the field it only shows status (typing as you talk, cleaning up, cleaned up). When the cursor isn't in a field it shows everything it hears, then "Cleaning up" and "Pasted". Voice commands show each step; if nothing was pasted or something failed, it says why. The bubble never takes focus, and clicks go straight through it.
 - **When the cursor isn't in a text field** (you're reading a web page, selecting files in Finder): with auto-focus off, nothing is written, the icon briefly shows a cross, and "Copy last sentence" in the menu gets the text back; with auto-focus on, it picks the right field in the window and writes there.
 - **Meetings**: it doesn't listen while Zoom, Teams, FaceTime or Webex is frontmost. If people are talking nearby or a video is playing, choose "Pause listening" in the menu.
-- **Menu**: pause/resume, copy last sentence, revert to the raw transcript, transcription (on-device / OpenAI / CubeLV / ParallelSandbox), AI cleanup (off / OpenAI / DeepSeek / Claude / CubeLV), auto-focus, voice commands, edit vocabulary, edit config, set up your own key, sign in to / out of CubeLV, help, quit.
+- **Menu**: pause/resume, copy last sentence, revert to the raw transcript, transcription (on-device / OpenAI / JarvisVoice account / ParallelSandbox), AI cleanup (off / OpenAI / DeepSeek / Claude / JarvisVoice account), auto-focus, voice commands, edit vocabulary, edit config, set up your own key, sign in to / out of JarvisVoice, buy credits, help, quit.
 
 ## AI cleanup (layer 2)
 
@@ -115,7 +115,7 @@ Dictating an hour a day, AI cleanup costs less than US$1 a month.
 ## Auto-focus and voice commands (layer 3)
 
 - **Auto-focus**: when the cursor isn't in a text field, the decision maker picks one of the fields in the window (search boxes and the address bar included), focuses it and writes there.
-- **Voice commands** (needs AI cleanup): say "open the TSMC stock page", "open settings", "tell BU hello on LINE" or "open YouTube", and it operates your apps (the same agent as CubeLV's voice commands):
+- **Voice commands** (needs AI cleanup): say "open the TSMC stock page", "open settings", "tell BU hello on LINE" or "open YouTube", and it operates your apps:
   - At each step it reads the whole screen of the frontmost app (the Accessibility tree: dialogs, toolbars and lists level by level, with a number and a state for everything you can use), and the AI picks one tool: click, right-click, type, press a key (shortcuts like cmd+l too), scroll, pick from a pop-up menu, use the menu bar, switch apps or open a URL. Nothing is hard-coded, such as "search first"; the AI decides from the screen.
   - It keeps going until the screen shows what you asked for, or the AI has tried a few ways and can't; it stops after 15 steps, when it goes back and forth between two steps, or repeats the same step three times. "Pause listening" also stops it. The bubble shows each step and the name of what it clicked.
   - When the cursor is in a text field (for example Claude's prompt box), Jev looks at what's on screen to decide: if it's clearly an instruction to operate the screen, or it names something on screen, it's treated as a command; something like "switch to another branch and run the tests again", meant for the AI, is typed as usual. For short, ambiguous phrases, start with "command, …" and it's always treated as a command.
@@ -132,7 +132,7 @@ Dictating an hour a day, AI cleanup costs less than US$1 a month.
 | `openai` (`gpt-transcribe`, default) | Most accurate, uses your vocabulary | US$0.0045 a minute; an hour a day is about US$7.4 a month | OpenAI |
 | `openai` (`gpt-live-transcribe`) | Slightly worse | US$0.017 a minute | OpenAI |
 | `local` (SenseVoice-Small) | Good Chinese, weaker English, ignores vocabulary | Free | Never leaves your Mac |
-| `cubelv` (Sign in with CubeLV) | Same as `gpt-live-transcribe` | Uses your CubeLV account's credits | CubeLV, then OpenAI |
+| `account` (JarvisVoice account) | Same as `gpt-transcribe` | Uses your account's credits, bought in the app | JarvisVoice's server, then OpenAI |
 | `parallelsandbox` | Same as `gpt-live-transcribe` | Depends on your ParallelSandbox plan | ParallelSandbox, then OpenAI |
 
 Only segments recognized as speech are sent; nothing is sent while it's quiet. Costs include the ~1.25 s of padding around each sentence. To switch engines pick one under "Transcription" in the menu, run `./install.sh <engine>`, or edit the config file; changes apply within a few seconds of saving.
@@ -148,15 +148,15 @@ No config file to edit and no Terminal needed:
 - **How it relates to the config file**: a key saved from the menu comes first, then the config file's `apiKey` / `ai.keys`, `apiKeyFile` / `ai.keyFiles`, `ai.keyCommands` and environment variables. All of those still work as before; remove the menu key and the one in your config file is used again.
 - **From Terminal**: `node ~/jarvis-voice/bin/set-key.mjs set deepseek` (the key isn't shown as you paste; `set openai --engine` also switches transcription to OpenAI).
 
-## Sign in with CubeLV
+## JarvisVoice account
 
-If you'd rather not get and look after your own keys, you can use a CubeLV account:
+If you'd rather not get and look after your own keys, you can use a JarvisVoice account (no key, buy credits in the app):
 
-- **Sign in**: choose "Sign in with CubeLV…" in the menu; your browser opens CubeLV, and you choose Allow (or run `node ~/jarvis-voice/bin/cubelv-login.mjs` in Terminal). Transcription and AI cleanup then switch to CubeLV; to use it for only one of them, switch the other back to on-device or your own key from the "Transcription" or "AI cleanup" submenu.
-- **Cost**: transcription per recorded minute, AI cleanup and voice-command decisions by usage, charged to your CubeLV credits. Every plan can use it. When you run out, the menu and the bubble next to your cursor say so; top up in CubeLV, or switch back to on-device or your own key.
-- **Access**: this sign-in only works for voice input (transcription and AI cleanup). It can't see or change your notes or any other data in CubeLV. It's stored in the macOS Keychain, not in the config file, and you can revoke it any time under Connected AI tools in CubeLV's settings.
-- **Sign out**: choose "Sign out of CubeLV"; transcription and AI cleanup go back to what you had before.
-- **What's sent**: the same as with your own keys (audio and the AI cleanup context), only to CubeLV, which passes it to the model.
+- **Sign in**: choose "Sign in to JarvisVoice…" in the menu; your browser opens, you sign in and choose Allow (or run `node ~/jarvis-voice/bin/login.mjs` in Terminal). Transcription and AI cleanup then switch to your account; to use it for only one of them, switch the other back to on-device or your own key from the "Transcription" or "AI cleanup" submenu.
+- **Credits**: choose "Buy credits…" in the menu, pick a pack and pay in your browser (Stripe); the menu shows how many credits you have left. Transcription is charged per recorded minute, AI cleanup and voice-command decisions by usage. When you run out, the menu and the bubble next to your cursor say so; buy more from the menu, or switch back to on-device or your own key.
+- **Access**: this sign-in only works for voice input (transcription and AI cleanup) and can't see or change anything else in your account. It's stored in the macOS Keychain, not in the config file, and you can revoke it any time under Connected AI tools in your account settings.
+- **Sign out**: choose "Sign out of JarvisVoice"; transcription and AI cleanup go back to what you had before.
+- **What's sent**: the same as with your own keys (audio and the AI cleanup context), only to JarvisVoice's server, which passes it to the model. See the [privacy policy](https://jarvis-voice.com/en/privacy/) and [terms](https://jarvis-voice.com/en/terms/).
 
 ## Config file
 
@@ -178,7 +178,7 @@ If you'd rather not get and look after your own keys, you can use a CubeLV accou
 
 | Field | Meaning |
 |---|---|
-| `engine` | `openai`, `local`, `cubelv`, `parallelsandbox` |
+| `engine` | `openai`, `local`, `account`, `parallelsandbox` |
 | `apps` | Only listen in these apps (bundle ids); default `["*"]`, all apps |
 | `excludeApps` | Don't listen while these apps are frontmost; defaults to meeting and calling apps |
 | `output` | `traditional` (Taiwan Traditional Chinese), `simplified`, `original` |
@@ -189,7 +189,7 @@ If you'd rather not get and look after your own keys, you can use a CubeLV accou
 | `openai.prompt` | A sentence or two describing the setting; don't put your vocabulary here |
 | `openai.vocabularyFile` | Vocabulary file, default `~/.voice-dictation/vocabulary.txt`, one term per line |
 | `local.language` | `auto`, or `zh`, `en`, `yue`, `ja`, `ko` |
-| `ai.enabled` / `ai.provider` | AI cleanup on/off (default on); `deepseek`, `openai`, `claude`, `cubelv` (Sign in with CubeLV). If unset, whichever provider you already have a key for. Also switchable from the menu |
+| `ai.enabled` / `ai.provider` | AI cleanup on/off (default on); `deepseek`, `openai`, `claude`, `account` (JarvisVoice account). If unset, whichever provider you already have a key for. Also switchable from the menu |
 | `ai.keys` / `ai.keyFiles` / `ai.keyCommands` | Each provider's key, a file with the key, or a command that prints it (e.g. `aws ssm get-parameter ...`, so the key never touches disk). Otherwise the `DEEPSEEK_API_KEY` / `ANTHROPIC_API_KEY` environment variables; OpenAI reuses the `openai` key. A key saved under "Set up your own key…" (Keychain) comes before all of these |
 | `ai.models` | Use a different model, e.g. `{ "openai": "gpt-4.1-mini" }` |
 | `ai.segmentPauseMs` | How long a pause ends a passage, default 1800 (only waited out in full when early cleanup is off) |
@@ -206,14 +206,14 @@ If you'd rather not get and look after your own keys, you can use a CubeLV accou
 | `autoFocus` | Find a text field when the cursor isn't in one (default on) |
 | `commands` | Voice commands (default on) |
 | `jev.apiKey` / `jev.apiKeyFile` / `jev.apiKeyCommand` | Your TypeSafe key (or the `TYPESAFE_API_KEY` environment variable); a key saved under "Set up your own key…" comes first |
-| `cubelv.apiUrl` | Which CubeLV to sign in to, default `https://app-api.cubelv.com`; the sign-in itself lives in the Keychain, not in the config file |
+| `account.apiUrl` | Which server the JarvisVoice account signs in to, default `https://app-api.jarvis-voice.com` (or the `VOICE_DICTATION_ACCOUNT_URL` environment variable); the sign-in itself lives in the Keychain, not in the config file. Config files from before 1.1.0 (`cubelv`) are converted automatically, and you sign in again once |
 
 ## Troubleshooting
 
 - **No menu bar icon**: open `~/Applications/JarvisVoice.app`. On macOS 26, check System Settings → Menu Bar to make sure it's allowed.
 - **Exclamation mark icon**: open the menu; the first line says why.
 - **AI cleanup does nothing, or the menu says "(no key)" or "(not signed in)"**: paste the key again under "Set up your own key…" in the menu (it tells you why if it doesn't work), or run `node ~/jarvis-voice/bin/ai-check.mjs`; it tells you what's missing.
-- **Errors after signing in with CubeLV**: "Out of CubeLV credits" means top up in CubeLV; "Your CubeLV sign-in has expired" means choose "Sign in with CubeLV…" again. You can also switch back to on-device or your own key from the menu.
+- **Errors with a JarvisVoice account**: "Out of credits" means buy credits from the menu; "Your JarvisVoice sign-in has expired" means choose "Sign in to JarvisVoice…" again. You can also switch back to on-device or your own key from the menu.
 - **Nothing gets pasted**: make sure the cursor is in a text field, then make sure "JarvisVoice" is turned on under Accessibility.
 - **Detailed log**: `~/.voice-dictation/listen.log`.
 - **Reinstall or update**: `git pull && ./install.sh`. If the app shell (`app/main.js`) and packaging haven't changed, it isn't rebuilt and you keep your permissions. If your keychain has an Apple developer certificate (Developer ID Application or Apple Development), the app is signed with it and keeps its permissions across rebuilds; otherwise it's signed ad hoc, macOS asks for the microphone again after a rebuild, and under Accessibility you need to select "JarvisVoice", remove it with "−", then reopen JarvisVoice and turn it on (just toggling it off and on doesn't work: the switch looks on but still points at the old build).
@@ -223,11 +223,12 @@ If you'd rather not get and look after your own keys, you can use a CubeLV accou
 - `app/main.js`: the menu bar app shell, packaged into `JarvisVoice.app` with macOS's built-in `osacompile` (no Xcode). Microphone and Accessibility permissions belong to it.
 - `app/ui.js`: the menu bar UI and the code that starts the background process. The shell loads it at launch, so changing it doesn't require rebuilding the app or re-granting permissions; quit from the menu and reopen to apply.
 - `bin/listen.mjs`: the background process. It watches which app is frontmost, records with ffmpeg, splits sentences locally and hands them to the transcription engine; with AI cleanup on, it groups them into passages for the AI, then writes into the text field or runs the command.
-- `bin/engines/`: `batch.mjs` (OpenAI transcription), `realtime.mjs` (real-time transcription via OpenAI, CubeLV or ParallelSandbox), `local.mjs` (SenseVoice via sherpa-onnx).
+- `bin/engines/`: `batch.mjs` (OpenAI transcription), `realtime.mjs` (real-time transcription via OpenAI, a JarvisVoice account or ParallelSandbox), `local.mjs` (SenseVoice via sherpa-onnx).
 - `bin/own-keys.mjs`, `bin/set-key.mjs`: "Set up your own key…" in the menu (test before saving, keys kept in the Keychain, switching transcription and AI cleanup).
-- `bin/cubelv.mjs`, `bin/cubelv-login.mjs`: Sign in with CubeLV (browser authorization, tokens kept in the Keychain and refreshed automatically, CubeLV transcription and AI cleanup).
+- `bin/account.mjs`, `bin/login.mjs`, `bin/credits.mjs`: JarvisVoice account (browser authorization, tokens kept in the Keychain and refreshed automatically, transcription and AI cleanup on credits, buying credits).
 - `bin/ax-agent.js`: the long-running Accessibility helper (JXA). Reads context and on-screen text, finds and focuses text fields, pastes (save clipboard → Cmd+V → restore, only to the frontmost app), selects what it just pasted to replace it, and lists and operates on-screen controls.
-- `core/`: the shared core, one copy used by this app, CubeLV and ParallelSandbox (see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)); other projects mount this repo as a git submodule and import `core/index.mjs` directly (never copy it).
+- `core/`: the shared core, one copy used by this app and Runvo's other apps (see
+ [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)); other projects mount this repo as a git submodule and import `core/index.mjs` directly (never copy it).
 - `bin/editor.mjs`: AI cleanup. `bin/ai-check.mjs`: checks that AI cleanup and the decision maker are set up. `bin/decide.mjs`: layer 3 decisions (Jev). `bin/agent-screen.mjs`: voice commands (reads the frontmost app's screen for the shared agent and carries out its steps). `bin/targeter.mjs`: rules for picking a text field. `bin/learn.mjs`: learning from your corrections. `bin/vocab-auto.mjs`: automatic vocabulary updates and the cap.
 - `bin/vocab-test.mjs`: vocabulary test (see [AI_SETUP.md](AI_SETUP.md)).
 - `site/`: the jarvis-voice.com website, published to GitHub Pages by GitHub Actions on every push to main.

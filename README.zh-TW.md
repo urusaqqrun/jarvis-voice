@@ -51,7 +51,7 @@ cd ~/jarvis-voice
 
 - **本機辨識**：免費，聲音不離開你的電腦（預設；用原始碼裝的是 `./install.sh local`）。
 - **自己的 key**：OpenAI 轉寫最準；AI 整理可以選 OpenAI、DeepSeek、Claude。從選單按「設定自己的 key…」，選哪一家、貼上 key 就好：會先實際測一次，通了才存進 macOS 鑰匙圈（不寫進設定檔），並把 AI 整理切到那家；OpenAI 轉寫要你勾了才換，不勾就維持原本的轉寫（例如本機辨識）（見下面「[設定自己的 key](#設定自己的-key)」）。也可以第二步請 AI 幫你放（key 由你自己貼，AI 不經手），或自己在 `~/.voice-dictation/config.json` 的 `openai` 裡加 `"apiKeyFile": "放 key 的檔案"`。
-- **用 CubeLV 登入**：不用準備 key。從選單按「用 CubeLV 登入…」，轉寫、AI 整理、語音指令的判斷都扣 [CubeLV](https://cubelv.com) 帳號的點數（見下面「[用 CubeLV 登入](#用-cubelv-登入)」）。
+- **JarvisVoice 帳號**：不用準備 key，在 app 裡買點數。從選單按「登入 JarvisVoice…」，轉寫、AI 整理、語音指令的判斷都用帳號的點數（見下面「[JarvisVoice 帳號](#jarvisvoice-帳號)」）。
 
 **第二步：請你的 AI 幫你設定**
 
@@ -80,7 +80,7 @@ AI 會：
 - **游標旁的小框**：講話中寫聽到、還沒打進框的字（講不到 1 秒、聲紋還沒比夠、預覽還沒打上去的那句），字都已經打進框就只寫狀態（邊講邊打、整理中、已整理）；游標不在框裡就寫聽到的全部，再來是「整理中」「已貼上」。語音指令會顯示做到哪一步，沒貼上、出錯也會寫原因。小框不會搶走游標，滑鼠點得穿過去。
 - **游標不在輸入框時**（例如在看網頁本身、在 Finder 選檔案）：沒開「自動找輸入框」就不寫，圖示會短暫變成叉叉，可以點選單的「複製上一句」把那段拿回來；開了就挑視窗裡該寫的輸入框寫進去。
 - **開會時不收音**：Zoom、Teams、FaceTime、Webex 在最前面時不收音。旁邊有人講話、在放影片，就按選單的「暫停收音」。
-- **選單**：暫停／繼續、複製上一句、換回原文、轉寫（本機／OpenAI／CubeLV／平行沙盒）、AI 整理（關／OpenAI／DeepSeek／Claude／CubeLV）、自動找輸入框、語音指令、編輯專有名詞、編輯設定檔、設定自己的 key、用 CubeLV 登入／登出、說明、結束。
+- **選單**：暫停／繼續、複製上一句、換回原文、轉寫（本機／OpenAI／JarvisVoice 帳號／平行沙盒）、AI 整理（關／OpenAI／DeepSeek／Claude／JarvisVoice 帳號）、自動找輸入框、語音指令、編輯專有名詞、編輯設定檔、設定自己的 key、登入／登出 JarvisVoice、購買點數、說明、結束。
 
 ## AI 整理（第二層）
 
@@ -115,7 +115,7 @@ AI 會：
 ## 自動找輸入框、語音指令（第三層）
 
 - **自動找輸入框**：游標不在輸入框時，由決策器從視窗裡所有輸入框（搜尋框、網址列也算）挑一個，對焦後寫進去。
-- **語音指令**（要先開 AI 整理）：講「進到台積電的個股頁」「打開設定」「在 LINE 傳給 BU 說你好」「打開 YouTube」，直接操作 app（跟 CubeLV 的語音指令同一套操作代理）：
+- **語音指令**（要先開 AI 整理）：講「進到台積電的個股頁」「打開設定」「在 LINE 傳給 BU 說你好」「打開 YouTube」，直接操作 app：
   - 每一步讀最前面那個 app 的整個畫面結構（輔助使用樹：對話框、工具列、清單一層層，能操作的東西都有編號、寫狀態），AI 從工具裡挑一個做：點、右鍵、填字、按鍵（含 cmd+l 這類組合鍵）、捲動、選下拉選單、選單列、切換 app、打開網址。沒有「先搜尋」這類寫死的做法，怎麼走由 AI 看畫面決定。
   - 做到畫面就是你要的結果、或 AI 試過幾種做法都不行為止；最多 15 步，在兩步之間來回、同一步做三次也會停。按「暫停收音」也會停。小框寫做到第幾步、點了哪個名字。
   - 游標在輸入框裡時（例如 Claude 的輸入框），Jev 會看畫面上有什麼來判斷：很確定是要操作畫面，或講到畫面上某個東西的名字，就當指令；像「你切到另一個分支再跑測試」這種要打給 AI 的話照樣打字。分不清的短句，開頭講「指令，……」一定當指令。
@@ -132,7 +132,7 @@ AI 會：
 | `openai`（`gpt-transcribe`，預設） | 最準，吃專有名詞 | 每分鐘 0.0045 美元；一天講 1 小時、一個月約 7.4 美元 | OpenAI |
 | `openai`（`gpt-live-transcribe`） | 稍差 | 每分鐘 0.017 美元 | OpenAI |
 | `local`（SenseVoice-Small） | 中文不錯，英文較弱，不吃專有名詞 | 免費 | 不離開你的電腦 |
-| `cubelv`（用 CubeLV 登入） | 同 `gpt-live-transcribe` | 扣 CubeLV 帳號的點數 | CubeLV，再轉給 OpenAI |
+| `account`（JarvisVoice 帳號） | 同 `gpt-transcribe` | 用帳號的點數（在 app 裡買） | JarvisVoice 的伺服器，再轉給 OpenAI |
 | `parallelsandbox` | 同 `gpt-live-transcribe` | 依平行沙盒的方案 | 平行沙盒，再轉給 OpenAI |
 
 只有判定是人聲的片段才會送去轉寫，安靜時什麼都不送。費用已經算進每句前後多帶的約 1.25 秒。換引擎從選單「轉寫」選，或跑 `./install.sh <引擎>`、直接改設定檔，存檔後幾秒內就會套用。
@@ -148,15 +148,15 @@ AI 會：
 - **跟設定檔的關係**：選單存的 key 最優先，再來才是設定檔的 `apiKey`／`ai.keys`、`apiKeyFile`／`ai.keyFiles`、`ai.keyCommands`、環境變數。這些原本的設定方式照常能用；清除選單存的 key，就回到設定檔裡的那把。
 - **終端機也可以**：`node ~/jarvis-voice/bin/set-key.mjs set deepseek`（貼上時畫面不顯示；`set openai --engine` 是轉寫也換成 OpenAI）。
 
-## 用 CubeLV 登入
+## JarvisVoice 帳號
 
-不想自己申請、保管 key 的話，可以用 CubeLV 帳號：
+不想自己申請、保管 key 的話，可以用 JarvisVoice 帳號（不用 key，在 app 裡買點數）：
 
-- **登入**：選單按「用 CubeLV 登入…」，瀏覽器會打開 CubeLV，按「允許」就好（終端機也可以跑 `node ~/jarvis-voice/bin/cubelv-login.mjs`）。登入後轉寫與 AI 整理切到 CubeLV；只想用其中一個，就從「轉寫」或「AI 整理」子選單換回本機或自己的 key。
-- **費用**：轉寫照錄音分鐘數、AI 整理與語音指令的判斷照用量，扣 CubeLV 帳號的點數，所有方案都能用。點數用完時選單和游標旁的小框會說，可以到 CubeLV 加值，或換回本機辨識、自己的 key。
-- **權限**：這個登入只能拿來做語音輸入（轉寫、AI 整理），看不到、也改不了你在 CubeLV 的筆記與任何資料。登入資訊存在 macOS 鑰匙圈，不寫進設定檔；CubeLV 設定「已連線的 AI 工具」隨時可以撤銷。
-- **登出**：選單按「登出 CubeLV」，轉寫與 AI 整理換回登入前的設定。
-- **送出去的內容**：跟自己的 key 一樣（聲音、AI 整理的上下文），只是送到 CubeLV，再由 CubeLV 轉給模型。
+- **登入**：選單按「登入 JarvisVoice…」，瀏覽器會打開，登入後按「允許」就好（終端機也可以跑 `node ~/jarvis-voice/bin/login.mjs`）。登入後轉寫與 AI 整理切到帳號；只想用其中一個，就從「轉寫」或「AI 整理」子選單換回本機或自己的 key。
+- **點數**：選單按「購買點數…」，挑一包在瀏覽器付款（Stripe），選單會顯示剩幾點。轉寫照錄音分鐘數、AI 整理與語音指令的判斷照用量扣點。點數用完時選單和游標旁的小框會說，可以從選單「購買點數…」加值，或換回本機辨識、自己的 key。
+- **權限**：這個登入只能拿來做語音輸入（轉寫、AI 整理），看不到、也改不了帳號裡的其他資料。登入資訊存在 macOS 鑰匙圈，不寫進設定檔；帳號設定「已連線的 AI 工具」隨時可以撤銷。
+- **登出**：選單按「登出 JarvisVoice」，轉寫與 AI 整理換回登入前的設定。
+- **送出去的內容**：跟自己的 key 一樣（聲音、AI 整理的上下文），只是送到 JarvisVoice 的伺服器，再轉給模型。詳見[隱私權政策](https://jarvis-voice.com/privacy/)與[服務條款](https://jarvis-voice.com/terms/)。
 
 ## 設定檔
 
@@ -178,7 +178,7 @@ AI 會：
 
 | 欄位 | 說明 |
 |---|---|
-| `engine` | `openai`、`local`、`cubelv`、`parallelsandbox` |
+| `engine` | `openai`、`local`、`account`、`parallelsandbox` |
 | `apps` | 只在這些 app 收音（bundle id），預設 `["*"]` 全部 |
 | `excludeApps` | 這些 app 在最前面時不收音，預設是開會、通話用的 app |
 | `output` | `traditional`（台灣正體）、`simplified`、`original` |
@@ -189,7 +189,7 @@ AI 會：
 | `openai.prompt` | 一兩句話描述場合，不要塞詞彙清單 |
 | `openai.vocabularyFile` | 專有名詞檔，預設 `~/.voice-dictation/vocabulary.txt`，一行一個詞 |
 | `local.language` | `auto` 或 `zh`、`en`、`yue`、`ja`、`ko` |
-| `ai.enabled`／`ai.provider` | AI 整理開關（預設開）；`deepseek`、`openai`、`claude`、`cubelv`（用 CubeLV 登入），沒寫就用已經有 key 的那家。選單可以直接切 |
+| `ai.enabled`／`ai.provider` | AI 整理開關（預設開）；`deepseek`、`openai`、`claude`、`account`（JarvisVoice 帳號），沒寫就用已經有 key 的那家。選單可以直接切 |
 | `ai.keys`／`ai.keyFiles`／`ai.keyCommands` | 各家的 key、放 key 的檔案、或拿 key 的指令（例如 `aws ssm get-parameter ...`，key 不落地）。都沒有就讀環境變數 `DEEPSEEK_API_KEY`、`ANTHROPIC_API_KEY`；OpenAI 沿用 `openai` 的 key。選單「設定自己的 key…」存的（鑰匙圈）比這些都優先 |
 | `ai.models` | 換模型，例如 `{ "openai": "gpt-4.1-mini" }` |
 | `ai.segmentPauseMs` | 停多久算一段講完，預設 1800（提早整理關掉時才要等滿） |
@@ -206,14 +206,14 @@ AI 會：
 | `autoFocus` | 游標不在輸入框時自動找輸入框（預設開） |
 | `commands` | 語音指令（預設開） |
 | `jev.apiKey`／`jev.apiKeyFile`／`jev.apiKeyCommand` | TypeSafe 的 key（環境變數 `TYPESAFE_API_KEY` 也可以）；選單「設定自己的 key…」存的優先 |
-| `cubelv.apiUrl` | 用 CubeLV 登入時連哪個 CubeLV，預設 `https://app-api.cubelv.com`；登入資訊存在鑰匙圈，不在設定檔 |
+| `account.apiUrl` | JarvisVoice 帳號連哪個伺服器，預設 `https://app-api.jarvis-voice.com`（也可以用環境變數 `VOICE_DICTATION_ACCOUNT_URL`）；登入資訊存在鑰匙圈，不在設定檔。1.1.0 以前的設定檔（`cubelv`）會自動換成新格式，要重新登入一次 |
 
 ## 疑難排解
 
 - **選單列沒有圖示**：打開 `~/Applications/JarvisVoice.app`。macOS 26 可以到「系統設定 → 選單列」確認它被允許顯示。
 - **圖示是驚嘆號**：點開選單看第一行寫的原因。
 - **AI 整理沒作用、選單寫「（沒有 key）」或「（未登入）」**：從選單「設定自己的 key…」重新貼一次（不通會說原因），或跑 `node ~/jarvis-voice/bin/ai-check.mjs`，它會說缺什麼。
-- **用 CubeLV 登入後出錯**：選單寫「CubeLV 點數用完了」就到 CubeLV 加值；寫「CubeLV 登入已失效」就重新按「用 CubeLV 登入…」。也可以直接從選單換回本機辨識或自己的 key。
+- **用 JarvisVoice 帳號出錯**：選單寫「點數用完了」就從選單「購買點數…」加值；寫「JarvisVoice 登入已失效」就重新按「登入 JarvisVoice…」。也可以直接從選單換回本機辨識或自己的 key。
 - **字沒貼進去**：先確認游標在輸入框裡，再確認「輔助使用」裡有打開「JarvisVoice」。
 - **看詳細記錄**：`~/.voice-dictation/listen.log`。
 - **重新安裝或更新**：`git pull && ./install.sh`。外殼 `app/main.js` 或打包設定沒變就不會重包，權限不用重給。鑰匙圈裡有 Apple 開發者憑證（Developer ID Application 或 Apple Development）時會用它簽名，重包也不用重給權限；沒有的話是本機簽名，重包後系統會再問一次麥克風，輔助使用要到設定裡選「JarvisVoice」按「−」移除，再重開 JarvisVoice 打開它（只把開關關掉再打開沒用，開關看起來是開的，認的還是舊版）。
@@ -223,11 +223,12 @@ AI 會：
 - `app/main.js`：選單列小程式的外殼，用 macOS 內建的 `osacompile` 包成 `JarvisVoice.app`，不用 Xcode。麥克風與輔助使用權限都算在它頭上。
 - `app/ui.js`：選單列的介面，以及帶起常駐程式的邏輯。外殼啟動時才讀進來，所以改它不用重包 app、權限也不用重給；改完從選單「結束」再打開就生效。
 - `bin/listen.mjs`：常駐程式。它看哪個 app 在最前面，用 ffmpeg 收音、在本機切句，交給轉寫引擎；AI 整理開著就分段交給 AI，再寫進輸入框或執行指令。
-- `bin/engines/`：`batch.mjs`（OpenAI 一般轉寫）、`realtime.mjs`（即時轉寫，OpenAI、CubeLV 或平行沙盒）、`local.mjs`（sherpa-onnx 跑 SenseVoice）。
+- `bin/engines/`：`batch.mjs`（OpenAI 一般轉寫）、`realtime.mjs`（即時轉寫，OpenAI、JarvisVoice 帳號或平行沙盒）、`local.mjs`（sherpa-onnx 跑 SenseVoice）。
 - `bin/own-keys.mjs`、`bin/set-key.mjs`：選單「設定自己的 key…」（先測再存、key 存鑰匙圈、切換轉寫與 AI 整理）。
-- `bin/cubelv.mjs`、`bin/cubelv-login.mjs`：用 CubeLV 登入（瀏覽器授權、token 存鑰匙圈並自動更新、CubeLV 的轉寫與 AI 整理）。
+- `bin/account.mjs`、`bin/login.mjs`、`bin/credits.mjs`：JarvisVoice 帳號（瀏覽器授權、token 存鑰匙圈並自動更新、用點數轉寫與 AI 整理、購買點數）。
 - `bin/ax-agent.js`：常駐的「輔助使用」小幫手（JXA）。讀上下文、找輸入框、對焦、貼上（暫存剪貼簿 → Cmd+V → 還原，只送給最前面的 app）、選回剛貼的字、列出畫面上的按鈕並操作。
-- `core/`：共用核心，Mac 小程式、CubeLV、平行沙盒共用一份（見 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)）。其他專案用 git submodule 直接掛這個 repo、從 `core/index.mjs` 引用，不複製。
+- `core/`：共用核心，Mac 小程式與 Runvo 其他 App 共用一份
+（見 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)）。其他專案用 git submodule 直接掛這個 repo、從 `core/index.mjs` 引用，不複製。
 - `bin/editor.mjs`：AI 整理。`bin/ai-check.mjs`：檢查 AI 整理和決策器設定好了沒。`bin/decide.mjs`：第三層的決策（Jev）。`bin/agent-screen.mjs`：語音指令（讀最前面那個 app 的畫面給核心的操作代理、照工具動手）。`bin/targeter.mjs`：挑輸入框的規則。`bin/learn.mjs`：從你的改字學詞。`bin/vocab-auto.mjs`：詞彙表自動更新與上限。
 - `bin/vocab-test.mjs`：專有名詞測試（見 [AI_SETUP.md](AI_SETUP.md)）。
 - `site/`：網站 jarvis-voice.com，push 到 main 後由 GitHub Actions 發到 GitHub Pages。

@@ -1,5 +1,5 @@
 // Mac 小程式的操作代理畫面接頭：讀最前面那個 app 的輔助使用樹（AX 小幫手的 tree），轉成核心的節點（core/agentScreen.mjs），
-// 照 AI 挑的工具動手。畫面怎麼寫給 AI 看、編號、太長怎麼裁、小框寫什麼都在核心，CubeLV（lib/voice/domAgent.ts）同一份。
+// 照 AI 挑的工具動手。畫面怎麼寫給 AI 看、編號、太長怎麼裁、小框寫什麼都在核心，網頁版（lib/voice/domAgent.ts）同一份。
 // 讀不到樹的 app（例如 LINE 的對話清單只有沒有名字的列）用截圖認字補：沒有名字的東西拿它範圍裡認出來的字當名字，
 // 其他認出來的字列成「畫面上的字」，點下去是點那個位置。
 // Mac 自己的工具：右鍵選單、選單列、切換 app、打開網址（沒有觸控，沒有長按、滑動；沒有共通的「上一頁」，用按鍵）。
@@ -47,7 +47,7 @@ function roleName(n) {
   return ROLE_NAMES[n.role] ?? '按鈕';
 }
 
-// 順序跟 CubeLV 一樣：選中、勾了、展開／收起、不能按，搜尋框放最前面，游標在這放最後
+// 順序跟網頁版一樣：選中、勾了、展開／收起、不能按，搜尋框放最前面，游標在這放最後
 function statesOf(n) {
   const out = [];
   if (n.selected || (n.role === 'AXRadioButton' && n.checked)) out.push('選中');

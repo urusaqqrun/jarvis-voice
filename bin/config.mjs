@@ -3,7 +3,7 @@
 // 再來才是這個檔的 apiKey／keys、apiKeyFile／keyFiles、keyCommands、環境變數。
 //
 // {
-//   "engine": "local",                 // local（本機 SenseVoice，免費）| openai（自己的 OpenAI key）| cubelv（用 CubeLV 登入，扣點數）| parallelsandbox
+//   "engine": "local",                 // local（本機 SenseVoice，免費）| openai（自己的 OpenAI key）| account（JarvisVoice 帳號，用點數）| parallelsandbox
 //   "apps": ["*"],                     // 這些 app 在最前面時才收音（bundle id）；"*" 是全部
 //   "excludeApps": ["us.zoom.xos"],    // 這些 app 在最前面時不收音（開會、通話用的 app）
 //   "output": "traditional",           // traditional（台灣正體）| simplified | original
@@ -16,12 +16,12 @@
 //                                      // prompt：一兩句話講這是什麼場合；keywords／vocabularyFile：會講到的專有名詞，一行一個
 //                                      // languages：預期的語言（例如 ["zh", "en"]）；舊的 language 單一字串也接受
 //   "parallelsandbox": { "apiKey": "", "apiUrl": "https://api.parallelsandbox.com" },
-//   "cubelv": { "apiUrl": "https://app-api.cubelv.com" },
-//                                      // 用 CubeLV 登入（選單「用 CubeLV 登入…」）：不用 key，轉寫與 AI 整理扣 CubeLV 點數。
+//   "account": { "apiUrl": "https://app-api.jarvis-voice.com" },
+//                                      // JarvisVoice 帳號（選單「登入 JarvisVoice…」）：不用 key，轉寫與 AI 整理用帳號點數（選單「購買點數…」買）。
 //                                      // token 存在鑰匙圈，不寫進這個檔；登入時記下原本的 engine 與 AI 整理（previous），登出時換回來
 //   "ai": {                            // AI 整理（Typeless 的做法）：一段話講完，帶上下文交給 AI 整理再貼
 //     "enabled": true,                 // 三層預設都開；沒有 AI 的 key 時只跑第一層
-//     "provider": "deepseek",          // openai | deepseek | claude | cubelv（用 CubeLV 登入）；沒寫就用已經有 key 的那家（DeepSeek → Claude → OpenAI）
+//     "provider": "deepseek",          // openai | deepseek | claude | account（JarvisVoice 帳號）；沒寫就用已經有 key 的那家（DeepSeek → Claude → OpenAI）
 //     "models": {},                    // 換模型：{ "openai": "gpt-6-luna", "deepseek": "deepseek-flash", "claude": "claude-haiku-5-5" }
 //     "keys": {}, "keyFiles": {},      // 各家的 key，或放 key 的檔案（純 key 或 .env）；沒寫就看環境變數，OpenAI 沿用 openai 的 key
 //     "keyCommands": {},               // 或用指令拿 key，key 不落地：{ "deepseek": "aws ssm get-parameter ... --output text" }
@@ -62,8 +62,8 @@
 //   }
 // }
 
-import { execSync } from 'node:child_process';
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { execFile, execSync } from 'node:child_process';
+import { existsSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { OWN_KEYS_FILE, ownKeyStore } from './own-keys.mjs';
@@ -71,9 +71,9 @@ import { OWN_KEYS_FILE, ownKeyStore } from './own-keys.mjs';
 export const STATE_DIR = process.env.VOICE_DICTATION_STATE_DIR || join(homedir(), '.voice-dictation');
 export const CONFIG_PATH = process.env.VOICE_DICTATION_CONFIG || join(STATE_DIR, 'config.json');
 export const DEFAULT_MODEL = 'sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17';
-export const ENGINES = ['local', 'openai', 'cubelv', 'parallelsandbox'];
-export const AI_PROVIDERS = ['openai', 'deepseek', 'claude', 'cubelv'];
-export const CUBELV_ACCOUNT = join(STATE_DIR, 'cubelv-account.json');
+export const ENGINES = ['local', 'openai', 'account', 'parallelsandbox'];
+export const AI_PROVIDERS = ['openai', 'deepseek', 'claude', 'account'];
+export const ACCOUNT_STATE = join(STATE_DIR, 'account.json');
 export const OWN_KEYS = join(STATE_DIR, OWN_KEYS_FILE); // 選單存了哪幾家的 key（不是秘密，key 在鑰匙圈）
 const KEY_VARS = { openai: 'OPENAI_API_KEY', deepseek: 'DEEPSEEK_API_KEY', claude: 'ANTHROPIC_API_KEY' };
 
@@ -110,7 +110,7 @@ export function defaults() {
       keywords: [], vocabularyFile: join(STATE_DIR, 'vocabulary.txt'),
     },
     parallelsandbox: { apiKey: '', apiUrl: 'https://api.parallelsandbox.com' },
-    cubelv: { apiUrl: 'https://app-api.cubelv.com' },
+    account: { apiUrl: 'https://app-api.jarvis-voice.com' },
     ai: {
       enabled: true, provider: 'deepseek', models: {}, keys: {}, keyFiles: {}, keyCommands: {},
       segmentPauseMs: 1800, contextChars: 400, screenChars: 1500, timeoutMs: 6000, styles: {},
@@ -199,25 +199,25 @@ function keyFromCommand(command) {
   return key;
 }
 
-// 用 CubeLV 登入了沒（bin/cubelv.mjs 登入時寫、登出或登入失效時刪的帳號紀錄，不是秘密）：回傳 { apiUrl, email } 或 null。
-// 登入的是別的 CubeLV（cubelv.apiUrl 換了）也算沒登入
-export function cubelvAccount(config) {
+// 登入 JarvisVoice 帳號了沒（bin/account.mjs 登入時寫、登出或登入失效時刪的帳號紀錄，不是秘密）：回傳 { apiUrl, email } 或 null。
+// 登入的是別的伺服器（account.apiUrl 換了）也算沒登入
+export function signedInAccount(config) {
   try {
-    const account = JSON.parse(readFileSync(CUBELV_ACCOUNT, 'utf8'));
-    return account?.apiUrl === config.cubelv.apiUrl ? account : null;
+    const account = JSON.parse(readFileSync(ACCOUNT_STATE, 'utf8'));
+    return account?.apiUrl === config.account.apiUrl ? account : null;
   } catch {
     return null;
   }
 }
 
-// 這家 AI 能不能用：CubeLV 看有沒有登入，其他看有沒有 key
+// 這家 AI 能不能用：JarvisVoice 帳號看有沒有登入，其他看有沒有 key
 export function aiAvailable(config, provider = config.ai.provider) {
-  return provider === 'cubelv' ? !!cubelvAccount(config) : !!aiKey(config, provider);
+  return provider === 'account' ? !!signedInAccount(config) : !!aiKey(config, provider);
 }
 
-// AI 整理用哪把 key：選單存的（鑰匙圈）→ 設定檔 keys → keyFiles → keyCommands → 環境變數；OpenAI 沿用轉寫的 key（CubeLV 不用 key）
+// AI 整理用哪把 key：選單存的（鑰匙圈）→ 設定檔 keys → keyFiles → keyCommands → 環境變數；OpenAI 沿用轉寫的 key（JarvisVoice 帳號不用 key）
 export function aiKey(config, provider = config.ai.provider) {
-  if (provider === 'cubelv') return '';
+  if (provider === 'account') return '';
   const ai = config.ai;
   return config.ownKeys?.[provider] || ai.keys?.[provider] || keyFromFile(ai.keyFiles?.[provider], KEY_VARS[provider]) || keyFromCommand(ai.keyCommands?.[provider])
     || process.env[KEY_VARS[provider]] || (provider === 'openai' ? config.openai.apiKey : '') || '';
@@ -242,9 +242,44 @@ const mtime = (file) => {
   try { return statSync(file.replace(/^~(?=\/)/, homedir())).mtimeMs; } catch { return 0; }
 };
 
-// 設定檔、詞彙檔、CubeLV 登入狀態或選單存的 key 有改就換新設定
+// 設定檔、詞彙檔、帳號登入狀態或選單存的 key 有改就換新設定
 export function configMtime(config) {
-  return `${mtime(CONFIG_PATH)}:${config?.openai?.vocabularyFile ? mtime(config.openai.vocabularyFile) : 0}:${mtime(CUBELV_ACCOUNT)}:${mtime(OWN_KEYS)}`;
+  return `${mtime(CONFIG_PATH)}:${config?.openai?.vocabularyFile ? mtime(config.openai.vocabularyFile) : 0}:${mtime(ACCOUNT_STATE)}:${mtime(OWN_KEYS)}`;
+}
+
+// 一次性搬家（1.1.0 以前的名字）：設定檔的 cubelv 鍵改成 account、engine／ai.provider 的 cubelv 改成 account。
+// 有改就回 true（呼叫端存回去）。舊的預設網址（app-api.cubelv.com）不搬：換成新的預設網址，本來就要重新登入
+export function migrateConfig(file) {
+  let changed = false;
+  if (file.cubelv && typeof file.cubelv === 'object') {
+    const { apiUrl, ...rest } = file.cubelv;
+    const keepUrl = apiUrl && !/^https:\/\/app-api\.cubelv\.com\/*$/.test(apiUrl);
+    file.account = { ...(keepUrl ? { apiUrl } : {}), ...rest, ...file.account };
+    if (!Object.keys(file.account).length) delete file.account;
+    delete file.cubelv;
+    changed = true;
+  } else if ('cubelv' in file) {
+    delete file.cubelv;
+    changed = true;
+  }
+  if (file.engine === 'cubelv') { file.engine = 'account'; changed = true; }
+  if (file.ai?.provider === 'cubelv') { file.ai.provider = 'account'; changed = true; }
+  return changed;
+}
+
+// 舊的登入紀錄（cubelv-account.json）與 token 直接刪：預設網址換了，本來就要重新登入（選單會顯示「登入 JarvisVoice…」）
+function removeOldSignIn() {
+  const old = join(STATE_DIR, 'cubelv-account.json');
+  if (!existsSync(old)) return;
+  let host = '';
+  try { host = new URL(JSON.parse(readFileSync(old, 'utf8')).apiUrl).host; } catch { /* 讀不懂就只刪檔 */ }
+  try { unlinkSync(old); } catch { /* 刪不掉下次再刪 */ }
+  try {
+    for (const name of readdirSync(STATE_DIR)) if (/^cubelv-token-.*\.json$/.test(name)) unlinkSync(join(STATE_DIR, name));
+  } catch { /* 沒有就算了 */ }
+  if (host && process.platform === 'darwin' && (process.env.VOICE_DICTATION_TOKEN_STORE || 'keychain') === 'keychain') {
+    execFile(process.env.VOICE_DICTATION_SECURITY_BIN || '/usr/bin/security', ['delete-generic-password', '-s', 'JarvisVoice CubeLV', '-a', host], { timeout: 15_000 }, () => {});
+  }
 }
 
 // 回傳 { config, error }：設定檔壞掉時照預設跑，error 說哪裡壞。
@@ -255,13 +290,20 @@ export function loadConfig() {
   if (existsSync(CONFIG_PATH)) {
     try { file = JSON.parse(readFileSync(CONFIG_PATH, 'utf8')); } catch (err) { error = `設定檔讀不懂：${err.message}`; }
   }
+  if (file && typeof file === 'object' && !Array.isArray(file) && migrateConfig(file)) {
+    try {
+      writeFileSync(`${CONFIG_PATH}.tmp`, `${JSON.stringify(file, null, 2)}\n`);
+      renameSync(`${CONFIG_PATH}.tmp`, CONFIG_PATH);
+    } catch { /* 存不回去就下次再搬，這次照新格式用 */ }
+  }
+  removeOldSignIn();
   const config = {
     ...base,
     ...file,
     local: { ...base.local, ...file.local },
     openai: { ...base.openai, ...file.openai },
     parallelsandbox: { ...base.parallelsandbox, ...file.parallelsandbox },
-    cubelv: { ...base.cubelv, ...file.cubelv },
+    account: { ...base.account, ...file.account },
     replacements: { ...base.replacements, ...file.replacements },
     ai: { ...base.ai, ...file.ai, autoVocabulary: { ...base.ai.autoVocabulary, ...file.ai?.autoVocabulary } },
     jev: { ...base.jev, ...file.jev },
@@ -296,6 +338,6 @@ export function loadConfig() {
   const ps = parallelSandboxFromClaudeJson();
   config.parallelsandbox.apiKey = config.parallelsandbox.apiKey || process.env.PARALLELSANDBOX_API_KEY || ps.apiKey || '';
   config.parallelsandbox.apiUrl = (process.env.PARALLELSANDBOX_API_URL || ps.apiUrl || config.parallelsandbox.apiUrl).replace(/\/+$/, '');
-  config.cubelv.apiUrl = String(process.env.VOICE_DICTATION_CUBELV_URL || config.cubelv.apiUrl || base.cubelv.apiUrl).replace(/\/+$/, '');
+  config.account.apiUrl = String(process.env.VOICE_DICTATION_ACCOUNT_URL || config.account.apiUrl || base.account.apiUrl).replace(/\/+$/, '');
   return { config, error };
 }

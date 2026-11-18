@@ -3,9 +3,9 @@
 // 帶起常駐程式 bin/listen.mjs（它掛了 3 秒後自己重開），狀態全顯示在選單列的圖示上。
 // 圖示平常是「JarvisVoice」標誌：單循環箭頭包住三條聲波（自動＋聲音）；有事時整個換成大圖（看「選單列圖示」那段）。
 // 固定寬度、不加字（加字會讓旁邊的圖示跳來跳去），顏色交給系統（範本圖，跟其他選單列圖示同色）。
-// 選單可以切轉寫（本機／OpenAI／CubeLV／平行沙盒）、AI 整理（關／OpenAI／DeepSeek／Claude／CubeLV）、自動找輸入框、語音指令，
+// 選單可以切轉寫（本機／OpenAI／JarvisVoice 帳號／平行沙盒）、AI 整理（關／OpenAI／DeepSeek／Claude／JarvisVoice 帳號）、自動找輸入框、語音指令，
 // 改的是設定檔，常駐程式會自己換；「設定自己的 key…」選一家、在對話框貼 key，帶起 bin/set-key.mjs 先測一次、通了才存進鑰匙圈；
-// 「用 CubeLV 登入…」帶起 bin/cubelv-login.mjs（瀏覽器登入，不用 key、扣 CubeLV 點數），跟自己的 key、本機辨識並列，不是預設；
+// 「登入 JarvisVoice…」帶起 bin/login.mjs（瀏覽器登入，不用 key、用帳號點數），跟自己的 key、本機辨識並列，不是預設；
 // 「換回原文」把上一段 AI 整理過的字換回轉寫原稿。
 // 游標旁的小框（bubble 事件）：講話中即時顯示聽到的字、整理中、已貼上、指令做到哪一步、出錯，不搶焦點、滑鼠點不到。
 // 新裝第一次打開（還沒有設定檔）先出第一次設定畫面（app/onboarding.js），走到「講一句試試」才帶起常駐程式。
@@ -15,7 +15,7 @@ const LISTEN = `${BUILD.repo}/bin/listen.mjs`;
 const MODELS_JS = `${BUILD.repo}/bin/models.mjs`;
 const UPDATE_JS = `${BUILD.repo}/bin/update.mjs`;
 const CREDITS_JS = `${BUILD.repo}/bin/credits.mjs`;
-const LOGIN = `${BUILD.repo}/bin/cubelv-login.mjs`;
+const LOGIN = `${BUILD.repo}/bin/login.mjs`;
 const SET_KEY = `${BUILD.repo}/bin/set-key.mjs`;
 const NODE_DIR = BUILD.node.replace(/\/[^/]*$/, '');
 // 系統語言是中文就顯示中文，其他都用英文（VOICE_DICTATION_LANG 可以指定，測試用）
@@ -24,16 +24,16 @@ const LANG = ObjC.unwrap($.NSProcessInfo.processInfo.environment.objectForKey('V
 const ZH = /^zh/i.test(LANG);
 // t、statePath、fm 用 function 宣告：app/onboarding.js 另外 eval，看不到這個檔的 const
 function t(zh, en) { return ZH ? zh : en; }
-const ENGINE_NAMES = { local: t('本機', 'on-device'), openai: 'OpenAI', cubelv: 'CubeLV', parallelsandbox: t('平行沙盒', 'ParallelSandbox') };
-// 轉寫子選單：免費的本機排第一，CubeLV 跟自己的 key 並列
+const ENGINE_NAMES = { local: t('本機', 'on-device'), openai: 'OpenAI', account: t('JarvisVoice 帳號', 'JarvisVoice account'), parallelsandbox: t('平行沙盒', 'ParallelSandbox') };
+// 轉寫子選單：免費的本機排第一，JarvisVoice 帳號跟自己的 key 並列
 const ENGINE_ITEMS = {
   local: t('本機（免費，聲音不離開電腦）', 'On-device (free, audio stays on your Mac)'),
   openai: t('OpenAI（自己的 key）', 'OpenAI (your own key)'),
-  cubelv: t('CubeLV（扣 CubeLV 點數，不用 key）', 'CubeLV (uses CubeLV credits, no key)'),
+  account: t('JarvisVoice 帳號（用點數，不用 key）', 'JarvisVoice account (uses credits, no key)'),
   parallelsandbox: t('平行沙盒', 'ParallelSandbox'),
 };
 const GUIDE_URL = 'https://github.com/urusaqqrun/jarvis-voice#readme';
-const AI_NAMES = { openai: 'OpenAI', deepseek: 'DeepSeek', claude: 'Claude', cubelv: 'CubeLV' };
+const AI_NAMES = { openai: 'OpenAI', deepseek: 'DeepSeek', claude: 'Claude', account: t('JarvisVoice 帳號', 'JarvisVoice account') };
 // 「設定自己的 key…」可以設定的幾家：用在哪、去哪裡建立、key 長什麼樣（id 跟 bin/own-keys.mjs 一樣）
 const KEY_PROVIDERS = {
   openai: {
@@ -73,15 +73,15 @@ let flash = null; // { kind: 'pasted' | 'nofield', until }：短暫顯示的結�
 // 常駐程式報上來的設定（settings 事件）
 let settings = {
   engine: '', ai: { enabled: false, provider: 'deepseek', ready: false }, autoFocus: false, commands: false, decider: '',
-  cubelv: { loggedIn: false, email: '' },
+  account: { loggedIn: false, email: '' },
   voiceprint: { enabled: false, ready: false, enrolled: false },
 };
 let voiceprintItem = null;
 let voiceprintResetItem = null;
 let engineMenuItem = null;
 const engineItems = {};
-let cubelvItem = null;
-let loginTask = null; // 正在跑的 bin/cubelv-login.mjs
+let accountItem = null;
+let loginTask = null; // 正在跑的 bin/login.mjs
 let loginKind = ''; // in（登入中）| out（登出中）
 let loginBuffer = '';
 let keysItem = null;
@@ -311,7 +311,7 @@ function uiSnapshot() {
     checked: [aiOffItem, ...Object.values(aiItems), autoFocusItem, commandsItem].map((item) => item.state).join(''),
     commands: ObjC.unwrap(commandsItem.title),
     engine: ObjC.unwrap(engineMenuItem.title),
-    cubelv: ObjC.unwrap(cubelvItem.title),
+    account: ObjC.unwrap(accountItem.title),
     keys: ObjC.unwrap(keysItem.title),
   };
 }
@@ -352,22 +352,22 @@ function refresh() {
 }
 
 function refreshSettings() {
-  if (!aiMenuItem || !cubelvItem || !keysItem || !voiceprintItem) return;
+  if (!aiMenuItem || !accountItem || !keysItem || !voiceprintItem) return;
   const { ai } = settings;
   const signedOut = t('（未登入）', ' (not signed in)');
-  const missing = ai.provider === 'cubelv' ? signedOut : t('（沒有 key）', ' (no key)');
+  const missing = ai.provider === 'account' ? signedOut : t('（沒有 key）', ' (no key)');
   aiMenuItem.setTitle(`${t('AI 整理：', 'AI cleanup: ')}${ai.enabled ? `${AI_NAMES[ai.provider]}${ai.ready ? '' : missing}` : t('關', 'Off')}`);
   const engine = settings.engine;
-  engineMenuItem.setTitle(`${t('轉寫：', 'Transcription: ')}${ENGINE_NAMES[engine] ?? engine}${engine === 'cubelv' && !settings.cubelv.loggedIn ? signedOut : ''}`);
+  engineMenuItem.setTitle(`${t('轉寫：', 'Transcription: ')}${ENGINE_NAMES[engine] ?? engine}${engine === 'account' && !settings.account.loggedIn ? signedOut : ''}`);
   for (const [name, item] of Object.entries(engineItems)) item.setState(engine === name ? 1 : 0);
-  cubelvItem.setTitle(loginKind === 'in'
-    ? t('正在等瀏覽器登入 CubeLV…（點這裡取消）', 'Waiting for CubeLV sign-in in your browser… (click to cancel)')
-    : loginKind === 'out' ? t('登出 CubeLV 中…', 'Signing out of CubeLV…')
-      : settings.cubelv.loggedIn
-        ? t(`登出 CubeLV${settings.cubelv.email ? `（${settings.cubelv.email}）` : ''}`, `Sign out of CubeLV${settings.cubelv.email ? ` (${settings.cubelv.email})` : ''}`)
-        : t('用 CubeLV 登入…（不用 key，扣 CubeLV 點數）', 'Sign in with CubeLV… (no key, uses CubeLV credits)'));
-  cubelvItem.setEnabled(loginKind !== 'out');
-  if (!settings.cubelv.loggedIn) credits = { balance: null, perMinute: null, packages: [], at: 0 };
+  accountItem.setTitle(loginKind === 'in'
+    ? t('正在等瀏覽器登入…（點這裡取消）', 'Waiting for sign-in in your browser… (click to cancel)')
+    : loginKind === 'out' ? t('登出 JarvisVoice 中…', 'Signing out of JarvisVoice…')
+      : settings.account.loggedIn
+        ? t(`登出 JarvisVoice${settings.account.email ? `（${settings.account.email}）` : ''}`, `Sign out of JarvisVoice${settings.account.email ? ` (${settings.account.email})` : ''}`)
+        : t('登入 JarvisVoice…（不用 key，用帳號點數）', 'Sign in to JarvisVoice… (no key, uses your credits)'));
+  accountItem.setEnabled(loginKind !== 'out');
+  if (!settings.account.loggedIn) credits = { balance: null, perMinute: null, packages: [], at: 0 };
   refreshCredits();
   const keyName = KEY_PROVIDERS[keyProvider]?.name ?? '';
   keysItem.setTitle(keyKind === 'set' ? t(`測試 ${keyName} 的 key 中…`, `Testing your ${keyName} key…`)
@@ -406,8 +406,8 @@ function updateConfig(change) {
 }
 
 function chooseAi(provider) {
-  // 還沒登入就選 CubeLV：先登入，登入成功才把 AI 整理切過去（轉寫不動）
-  if (provider === 'cubelv' && !settings.cubelv.loggedIn) { runLogin(['--use', 'ai']); return; }
+  // 還沒登入就選 JarvisVoice 帳號：先登入，登入成功才把 AI 整理切過去（轉寫不動）
+  if (provider === 'account' && !settings.account.loggedIn) { runLogin(['--use', 'ai']); return; }
   // 選了還沒有 key 的那家：先貼 key，測通了才把 AI 整理切過去（常駐程式沒報各家的 key 時照舊直接切）
   if (KEY_PROVIDERS[provider] && settings.keys && !settings.keys[provider]) { setUpKey(provider, { ai: true }); return; }
   updateConfig((config) => {
@@ -418,12 +418,12 @@ function chooseAi(provider) {
 }
 
 function chooseEngine(engine) {
-  if (engine === 'cubelv' && !settings.cubelv.loggedIn) { runLogin(['--use', 'engine']); return; }
+  if (engine === 'account' && !settings.account.loggedIn) { runLogin(['--use', 'engine']); return; }
   if (engine === 'openai' && settings.keys && !settings.keys.openai) { setUpKey('openai', { engine: true }); return; }
   updateConfig((config) => { config.engine = engine; });
 }
 
-// ── 用 CubeLV 登入／登出：帶起 bin/cubelv-login.mjs，做完就結束；常駐程式看到登入狀態與設定檔改了會自己換 ──
+// ── 登入／登出 JarvisVoice：帶起 bin/login.mjs，做完就結束；常駐程式看到登入狀態與設定檔改了會自己換 ──
 
 function showAlert(title, text) {
   $.NSApplication.sharedApplication.activateIgnoringOtherApps(true);
@@ -462,28 +462,28 @@ function runLogin(args) {
     loginKind = args[0] === 'logout' ? 'out' : 'in';
     loginBuffer = '';
   } catch (err) {
-    showAlert(t('CubeLV 登入開不起來', "Couldn't start CubeLV sign-in"), String(err));
+    showAlert(t('JarvisVoice 登入開不起來', "Couldn't start JarvisVoice sign-in"), String(err));
   }
   refreshSettings();
 }
 
-// 選單的「用 CubeLV 登入…／登出 CubeLV」：登入中再按一次是取消
-function cubelvAction() {
+// 選單的「登入 JarvisVoice…／登出 JarvisVoice」：登入中再按一次是取消
+function accountAction() {
   if (loginTask) { if (loginKind === 'in') loginTask.terminate; return; }
-  runLogin(settings.cubelv.loggedIn ? ['logout'] : []);
+  runLogin(settings.account.loggedIn ? ['logout'] : []);
 }
 
 function onLoginLine(line) {
   let event;
   try { event = JSON.parse(line); } catch { return; }
-  if (event.type !== 'cubelv') return;
+  if (event.type !== 'account') return;
   if (event.state === 'error') buyAfterLogin = false;
-  if (event.state === 'error' && !['cancelled', 'denied'].includes(event.code)) showAlert(t('沒有登入 CubeLV', 'Not signed in to CubeLV'), event.message);
+  if (event.state === 'error' && !['cancelled', 'denied'].includes(event.code)) showAlert(t('沒有登入 JarvisVoice', 'Not signed in to JarvisVoice'), event.message);
   else if (event.state === 'done' && buyAfterLogin) {
     // 從「購買點數…」來的：登入好了接著選點數包（點數用完正是要買，不跳「已登入」）
     buyAfterLogin = false;
     $.NSTimer.scheduledTimerWithTimeIntervalTargetSelectorUserInfoRepeats(0.3, controller, 'creditsBuy:', $(), false);
-  } else if (event.state === 'done' && event.quotaExceeded) showAlert(t('已登入 CubeLV', 'Signed in to CubeLV'), event.message);
+  } else if (event.state === 'done' && event.quotaExceeded) showAlert(t('已登入 JarvisVoice', 'Signed in to JarvisVoice'), event.message);
 }
 
 function onLoginOut(note) {
@@ -505,7 +505,7 @@ function onLoginEnded() {
 }
 
 // ── 購買點數（不用 key）：沒登入先登入，再帶起 bin/credits.mjs 拿點數包、選一包、開 Stripe 付款頁（瀏覽器）。
-// 點數跟「用 CubeLV 登入」扣的是同一種；選單這一行順便寫剩幾點、大約還能講幾小時（打開選單時更新，30 秒內不重問）──
+// 點數跟「登入 JarvisVoice」用的是同一種；選單這一行順便寫剩幾點、大約還能講幾小時（打開選單時更新，30 秒內不重問）──
 let creditsItem = null;
 let creditsTask = null;
 let creditsBuffer = '';
@@ -523,7 +523,7 @@ function creditHours(amount, perMinute) {
 }
 
 function creditsTitle() {
-  if (!settings.cubelv.loggedIn) return t('購買點數（不用 key）…', 'Buy credits (no key needed)…');
+  if (!settings.account.loggedIn) return t('購買點數（不用 key）…', 'Buy credits (no key needed)…');
   if (credits.balance === null) return t('購買點數…', 'Buy credits…');
   const hours = creditHours(credits.balance, credits.perMinute);
   return t(`購買點數…（剩 ${withCommas(credits.balance)} 點${hours ? `，約 ${hours} 小時` : ''}）`,
@@ -562,13 +562,13 @@ function runCredits(args, intent) {
 // 選單「購買點數…」：沒登入先登入（登入好了 creditsBuy: 再回來），有登入就拿點數包
 function creditsAction() {
   if (creditsTask || loginTask) return;
-  if (!settings.cubelv.loggedIn) { buyAfterLogin = true; runLogin([]); return; }
+  if (!settings.account.loggedIn) { buyAfterLogin = true; runLogin([]); return; }
   runCredits(['account'], 'buy');
 }
 
 // 打開選單時：有登入、30 秒內沒問過就更新剩幾點
 function creditsMenuOpened() {
-  if (!settings.cubelv.loggedIn || creditsTask || Date.now() - credits.at < 30_000) return;
+  if (!settings.account.loggedIn || creditsTask || Date.now() - credits.at < 30_000) return;
   runCredits(['account'], 'refresh');
 }
 
@@ -882,7 +882,7 @@ function showFlash(kind, ms) {
 // ── 游標旁的小框 ──
 // 放在游標下面（下面放不下就放上面）；拿不到游標放視窗下方中間，都沒有就放主螢幕下方中間。
 // 左邊一條色條看狀態：藍＝聽著／整理中、綠＝已貼上／完成、橘＝沒貼上／沒完成、紅＝出錯。
-// 有哪些階段、標題和內文寫什麼、停多久都在核心（core/bubble.mjs，CubeLV 的頂端 toast 同一份），
+// 有哪些階段、標題和內文寫什麼、停多久都在核心（core/bubble.mjs，網頁版的頂端 toast 同一份），
 // 常駐程式算好送來：{ state, title, body, tone, loud, busy, result, holdMs }，這裡只畫。
 const BUBBLE_MAX_TEXT_W = 420;
 const BUBBLE_PAD_X = 14;
@@ -1420,12 +1420,12 @@ ObjC.registerSubclass({
     'aiOpenai:': { types: ['void', ['id']], implementation() { chooseAi('openai'); } },
     'aiDeepseek:': { types: ['void', ['id']], implementation() { chooseAi('deepseek'); } },
     'aiClaude:': { types: ['void', ['id']], implementation() { chooseAi('claude'); } },
-    'aiCubelv:': { types: ['void', ['id']], implementation() { chooseAi('cubelv'); } },
+    'aiAccount:': { types: ['void', ['id']], implementation() { chooseAi('account'); } },
     'engineLocal:': { types: ['void', ['id']], implementation() { chooseEngine('local'); } },
     'engineOpenai:': { types: ['void', ['id']], implementation() { chooseEngine('openai'); } },
-    'engineCubelv:': { types: ['void', ['id']], implementation() { chooseEngine('cubelv'); } },
+    'engineAccount:': { types: ['void', ['id']], implementation() { chooseEngine('account'); } },
     'engineParallelsandbox:': { types: ['void', ['id']], implementation() { chooseEngine('parallelsandbox'); } },
-    'cubelvLogin:': { types: ['void', ['id']], implementation() { cubelvAction(); } },
+    'accountLogin:': { types: ['void', ['id']], implementation() { accountAction(); } },
     'credits:': { types: ['void', ['id']], implementation() { creditsAction(); } },
     'creditsOut:': { types: ['void', ['id']], implementation(note) { onCreditsOut(note); } },
     'creditsEnded:': { types: ['void', ['id']], implementation() { creditsDone('task'); } },
@@ -1510,7 +1510,7 @@ function startUI() {
   aiMenu.addItem(aiOffItem);
   aiMenu.addItem($.NSMenuItem.separatorItem);
   for (const [provider, name] of Object.entries(AI_NAMES)) {
-    const title = provider === 'cubelv' ? t('CubeLV（扣 CubeLV 點數，不用 key）', 'CubeLV (uses CubeLV credits, no key)') : name;
+    const title = provider === 'account' ? t('JarvisVoice 帳號（用點數，不用 key）', 'JarvisVoice account (uses credits, no key)') : name;
     aiItems[provider] = menuItem(title, `ai${provider[0].toUpperCase()}${provider.slice(1)}:`);
     aiMenu.addItem(aiItems[provider]);
   }
@@ -1529,8 +1529,9 @@ function startUI() {
   menu.addItem(menuItem(t('編輯設定檔…', 'Edit config…'), 'openConfig:'));
   keysItem = menuItem(t('設定自己的 key…', 'Set up your own key…'), 'ownKeys:');
   menu.addItem(keysItem);
-  cubelvItem = menuItem(t('用 CubeLV 登入…', 'Sign in with CubeLV…'), 'cubelvLogin:');
-  menu.addItem(cubelvItem);
+  accountItem = menuItem(t('登入 JarvisVoice…', 'Sign in to JarvisVoice…')
+, 'accountLogin:');
+  menu.addItem(accountItem);
   creditsItem = menuItem(creditsTitle(), 'credits:');
   menu.addItem(creditsItem);
   menu.addItem(menuItem(t('設定精靈…（權限、試講、AI 整理）', 'Setup Guide… (permissions, test, AI cleanup)'), 'onboarding:'));

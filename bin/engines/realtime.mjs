@@ -1,10 +1,10 @@
-// 雲端即時轉寫：OpenAI Realtime 的 transcription 連線（openai 直連，或經 CubeLV 後端、平行沙盒 control 轉送）。
-// 連線、送音、重連補送都在核心（core/transcription.mjs，跟 CubeLV、平行沙盒同一份）；這裡只接 Mac 小程式的介面：
+// 雲端即時轉寫：OpenAI Realtime 的 transcription 連線（openai 直連，或經 JarvisVoice 伺服器、平行沙盒 control 轉送）。
+// 連線、送音、重連補送都在核心（core/transcription.mjs，跟 網頁版、平行沙盒同一份）；這裡只接 Mac 小程式的介面：
 // listen.mjs 本機斷句，講話中 append、講完一句 commit，拿到一句的字就 onFinal。
 // 整天開著：有聲音才連，安靜夠久、連線快到 10 分鐘上限時先關（housekeeping）。
 
 import { createTranscriber, permanentError } from '../../core/transcription.mjs';
-import { CubeLVError, cubelvSession } from '../cubelv.mjs';
+import { AccountError, accountSession } from '../account.mjs';
 
 // 放棄之後（連線一直被拒、key 錯）隔這麼久才再試
 const RETRY_AFTER_FAIL_MS = 5000;
@@ -71,14 +71,14 @@ export function openaiConnector({ apiKey, model = 'gpt-live-transcribe', languag
   };
 }
 
-// CubeLV（用 CubeLV 登入）：先確認登入與點數（/voice/check，60 秒內問過不再問），再帶 token header 連 CubeLV 的 /ws/transcription；
+// JarvisVoice 帳號：先確認登入與點數（/voice/check，60 秒內問過不再問），再帶 token header 連 JarvisVoice 伺服器的 /ws/transcription；
 // session 設定由後端送，逐字稿後端已轉台灣正體，照錄音分鐘數扣點。沒登入、登入失效、點數不足都直接放棄並說明（重試也沒用）。
-export function cubelvConnector({ apiUrl, language = '' }) {
+export function accountConnector({ apiUrl, language = '' }) {
   return async () => {
     try {
-      return await cubelvSession(apiUrl).transcriptionTarget({ language });
+      return await accountSession(apiUrl).transcriptionTarget({ language });
     } catch (err) {
-      if (err instanceof CubeLVError) throw permanentError(err.message);
+      if (err instanceof AccountError) throw permanentError(err.message);
       throw err;
     }
   };

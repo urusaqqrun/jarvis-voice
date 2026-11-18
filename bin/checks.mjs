@@ -8,9 +8,9 @@ export const CLEANUP_SAMPLE = '嗯那個我們明天三點開會，不對，四�
 export const COMMAND_SAMPLE = '進到台積電的個股頁';
 
 // AI 整理：回 { text, ms, model }；失敗丟錯（訊息帶 HTTP 狀態，例如 401 是 key 不對）
-export function tryCleanup({ provider, model, apiKey, cubelvUrl, vocabulary = [], timeoutMs = 15_000 }) {
+export function tryCleanup({ provider, model, apiKey, accountUrl, vocabulary = [], timeoutMs = 15_000 }) {
   return editSegment({
-    provider, model, apiKey, cubelvUrl, timeoutMs, transcript: CLEANUP_SAMPLE,
+    provider, model, apiKey, accountUrl, timeoutMs, transcript: CLEANUP_SAMPLE,
     context: { app: 'Slack', field: { role: 'AXTextArea', label: '訊息' } }, vocabulary,
   });
 }

@@ -17,8 +17,7 @@
 <link rel="alternate" hreflang="zh-Hant" href="https://jarvis-voice.com/">
 <link rel="alternate" hreflang="en" href="https://jarvis-voice.com/en/">
 <link rel="alternate" hreflang="x-default" href="https://jarvis-voice.com/en/">
-<!-- 跟 CubeLV、平行沙盒同一家公司：組織用 cubelv.com 那一個 @id -->
-<script type="application/ld+json">{"@context": "https://schema.org", "@graph": [{"@type": "Organization", "@id": "https://cubelv.com/#organization", "name": "Runvo LLC", "url": "https://cubelv.com/tw/", "logo": "https://cubelv.com/press/logos/cubelv-app-icon-512.png"}, {"@type": "WebSite", "@id": "https://jarvis-voice.com/#website", "name": "JarvisVoice", "alternateName": "Jarvis Voice", "url": "https://jarvis-voice.com/", "inLanguage": "zh-Hant", "publisher": {"@id": "https://cubelv.com/#organization"}}, {"@type": "SoftwareApplication", "name": "JarvisVoice", "operatingSystem": "macOS", "applicationCategory": "UtilitiesApplication", "url": "https://jarvis-voice.com/", "description": "macOS 選單列小程式。開著就自動收音，你講的話直接寫進正在用的 app；講指令，它就幫你操作 app。", "inLanguage": "zh-Hant", "license": "https://opensource.org/licenses/MIT", "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"}, "publisher": {"@id": "https://cubelv.com/#organization"}}]}</script>
+<script type="application/ld+json">{"@context": "https://schema.org", "@graph": [{"@type": "Organization", "@id": "https://jarvis-voice.com/#organization", "name": "Runvo LLC", "url": "https://jarvis-voice.com/", "logo": "https://jarvis-voice.com/icon.png"}, {"@type": "WebSite", "@id": "https://jarvis-voice.com/#website", "name": "JarvisVoice", "alternateName": "Jarvis Voice", "url": "https://jarvis-voice.com/", "inLanguage": "zh-Hant", "publisher": {"@id": "https://jarvis-voice.com/#organization"}}, {"@type": "SoftwareApplication", "name": "JarvisVoice", "operatingSystem": "macOS", "applicationCategory": "UtilitiesApplication", "url": "https://jarvis-voice.com/", "description": "macOS 選單列小程式。開著就自動收音，你講的話直接寫進正在用的 app；講指令，它就幫你操作 app。", "inLanguage": "zh-Hant", "license": "https://opensource.org/licenses/MIT", "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"}, "publisher": {"@id": "https://jarvis-voice.com/#organization"}}]}</script>
 <script>
   // 第一次來、瀏覽器不是中文：帶去英文版（選過語言就記住，不再自動帶）
   try {
@@ -83,8 +82,6 @@
   .card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 22px; }
   .card .tag { font-size: 14px; font-weight: 600; color: var(--accent); margin-bottom: 6px; }
   .card p { color: var(--muted); font-size: 16px; margin: 0; }
-  #family .card .tag { color: var(--muted); }
-  #family .layers { margin: 20px 0 16px; }
 
   .example { display: grid; gap: 16px; }
   .said, .wrote { padding: 16px 18px; border-radius: 12px; }
@@ -150,7 +147,7 @@
       <div class="card">
         <div class="tag">第二層</div>
         <h3>AI 整理</h3>
-        <p>一段話講完，帶上游標前後的字、畫面上看得到的字、app、網址交給 AI，整理成你本來想打的字：去贅字、改口只留結果、條列、依 app 調語氣、照你的專有名詞。OpenAI、DeepSeek、Claude 三選一。</p>
+        <p>一段話講完，帶上游標前後的字、畫面上看得到的字、app、網址交給 AI，整理成你本來想打的字：去贅字、改口只留結果、條列、依 app 調語氣、照你的專有名詞。OpenAI、DeepSeek、Claude 用自己的 key，或用 JarvisVoice 帳號。</p>
       </div>
       <div class="card">
         <div class="tag">第三層</div>
@@ -214,42 +211,29 @@
         <tr><td>轉寫（本機辨識）</td><td>在你的電腦上跑</td><td>免費</td></tr>
         <tr><td>AI 整理（DeepSeek、Claude 或 OpenAI）</td><td>每段約 US$0.00003–0.00008</td><td>不到 US$1</td></tr>
         <tr><td>第三層決策（Jev，選用）</td><td>每次約 US$0.00001</td><td>約 US$0.1</td></tr>
+        <tr><td>JarvisVoice 帳號（轉寫＋AI 整理）</td><td>不用 key，在 app 裡買點數；轉寫照錄音分鐘數、AI 整理照用量扣點</td><td>看買的點數包</td></tr>
       </table>
     </div>
-    <p class="note">費用用你自己的 key，直接付給各家。收音一直開著，旁邊有人講話也會送去轉寫；開會、看影片時從選單按「暫停收音」。</p>
+    <p class="note">用自己的 key 時，費用直接付給各家；不想管 key，可以從選單「登入 JarvisVoice…」，再從「購買點數…」買點數（Stripe 付款）。收音一直開著，旁邊有人講話也會送去轉寫；開會、看影片時從選單按「暫停收音」。</p>
   </section>
 
   <section>
     <h2>資料去哪裡</h2>
     <ul class="plain">
       <li>聲音：只送有人聲的片段給你選的轉寫服務；用本機辨識就不離開電腦。</li>
+      <li>用自己的 key：聲音與要整理的字直接送到你選的那家 AI，不經過我們。</li>
+      <li>用 JarvisVoice 帳號：聲音與要整理的字送到我們的伺服器，轉給 AI 模型處理後回傳；點數與付款走 Stripe。</li>
       <li>AI 整理開著時：游標前後各 400 字、選取的字、視窗裡看得到的字（最後約 1,500 字）、app 名稱、視窗標題、網址，送給你選的 AI。</li>
       <li>第三層：畫面上按鈕、連結、輸入框的名稱，送給決策器（Jev 或你選的 AI）。</li>
       <li>歷史、詞彙、設定、key 都只存在你的電腦。</li>
     </ul>
+    <p class="note">詳見<a href="privacy/">隱私權政策</a>與<a href="terms/">服務條款</a>。</p>
   </section>
 
-  <section id="family">
-    <h2>跟 CubeLV、平行沙盒接成一條工作流</h2>
-    <p>JarvisVoice 跟 CubeLV、平行沙盒（ParallelSandbox）是同一個團隊 Runvo LLC 做的。JarvisVoice 管「用講的交代」：你講的話寫進 Claude Code、Codex 或 CubeLV；CubeLV 把工作變成每天自己跑、該你決定時停下來的 App；要動程式的部分交給平行沙盒，好幾個 coding agent 同時平行開發，測過的版本排隊等你驗收。</p>
-    <div class="layers">
-      <div class="card">
-        <div class="tag">每天做：AI 照流程跑</div>
-        <h3><a href="https://cubelv.com/tw/">CubeLV</a></h3>
-        <p>一句話打造你自己的自動化 App。agent 照排程把每一步做完，需要你決定的地方，交件卡停下來等你按。</p>
-      </div>
-      <div class="card">
-        <div class="tag">做出來：平行開發，測過再交件</div>
-        <h3><a href="https://parallelsandbox.com/">平行沙盒 ParallelSandbox</a></h3>
-        <p>讓 Claude Code、Codex 同時平行開發：每件工作在自己的箱子裡做完、自己先測過，做好的版本排隊等你驗收。</p>
-      </div>
-    </div>
-    <p class="note">CubeLV 和平行沙盒 App 裡的語音輸入，用的也是 JarvisVoice 這套核心。一件工作怎麼從講出來走到上線：<a href="https://cubelv.com/workflow/">三個產品怎麼接成一條工作流</a>。</p>
-  </section>
 
   <footer>
     JarvisVoice 是開源專案（MIT 授權）・<a href="https://github.com/urusaqqrun/jarvis-voice">GitHub</a><br>
-    Runvo LLC 的產品：<a href="https://cubelv.com/tw/">CubeLV</a>・<a href="https://parallelsandbox.com/">平行沙盒 ParallelSandbox</a>・<a href="https://cubelv.com/workflow/">一條完整的工作流</a>
+    <a href="privacy/">隱私權政策</a>・<a href="terms/">服務條款</a>・© Runvo LLC
   </footer>
 </main>
 </body>

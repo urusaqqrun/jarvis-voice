@@ -18,13 +18,13 @@ console.log(`AI 整理：${config.ai.enabled ? '開' : '關（從選單「AI 整
 
 const key = aiKey(config);
 const ready = aiAvailable(config, provider);
-if (!ready && provider === 'cubelv') {
-  fail('還沒用 CubeLV 登入：從選單按「用 CubeLV 登入…」，或跑 node ~/jarvis-voice/bin/cubelv-login.mjs');
+if (!ready && provider === 'account') {
+  fail('還沒登入 JarvisVoice：從選單按「登入 JarvisVoice…」，或跑 node ~/jarvis-voice/bin/login.mjs');
 } else if (!ready) {
   fail(`沒有 ${PROVIDER_NAMES[provider]} 的 key：從選單「設定自己的 key…」貼上，或設定檔 ai.keys.${provider}、ai.keyFiles.${provider}、ai.keyCommands.${provider} 擇一`);
 } else {
   try {
-    const r = await tryCleanup({ provider, model, apiKey: key, cubelvUrl: config.cubelv.apiUrl, vocabulary: config.openai.keywords });
+    const r = await tryCleanup({ provider, model, apiKey: key, accountUrl: config.account.apiUrl, vocabulary: config.openai.keywords });
     console.log(`整理測試（${r.ms} ms）：「${CLEANUP_SAMPLE}」→「${r.text}」`);
   } catch (err) {
     fail(`整理測試失敗：${err.message}`);
@@ -35,10 +35,10 @@ console.log(`自動找輸入框：${config.autoFocus ? '開' : '關'}；語音�
 if (config.autoFocus || config.commands) {
   const decider = createDecider(() => ({
     jevKey: config.jev.apiKey, jevModel: config.jev.model,
-    ai: ready ? { provider, model: config.ai.models[provider] || '', apiKey: key, cubelvUrl: config.cubelv.apiUrl } : null,
+    ai: ready ? { provider, model: config.ai.models[provider] || '', apiKey: key, accountUrl: config.account.apiUrl } : null,
   }));
   if (!decider.available()) {
-    fail('第三層沒有決策器：要有 Jev key（選單「設定自己的 key…」，或 jev.apiKey／apiKeyFile／apiKeyCommand），或 AI 整理那家的 key（或用 CubeLV 登入）');
+    fail('第三層沒有決策器：要有 Jev key（選單「設定自己的 key…」，或 jev.apiKey／apiKeyFile／apiKeyCommand），或 AI 整理那家的 key（或登入 JarvisVoice 帳號）');
   } else {
     try {
       const a = await tryDecider(decider);

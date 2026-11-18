@@ -1,6 +1,6 @@
 // 自己的 key（選單「設定自己的 key…」存的）：OpenAI（轉寫與 AI 整理共用）、DeepSeek、Claude、TypeSafe Jev。
 //   - macOS 存在鑰匙圈（服務「JarvisVoice key」、帳號是哪一家，鑰匙圈存取裡看得到「JarvisVoice OpenAI key」這幾筆），不寫進設定檔；
-//     其他系統（或 VOICE_DICTATION_TOKEN_STORE=file）存在狀態資料夾裡只有自己讀得到的檔案（0600）。跟 CubeLV 登入的 token 同一套（bin/cubelv.mjs 的 tokenStore）。
+//     其他系統（或 VOICE_DICTATION_TOKEN_STORE=file）存在狀態資料夾裡只有自己讀得到的檔案（0600）。跟 JarvisVoice 帳號的 token 同一套（bin/account.mjs 的 tokenStore）。
 //   - 狀態資料夾的 own-keys.json 只記「哪幾家存了 key、什麼時候存的」（不是秘密）：讀設定時只去鑰匙圈拿這幾家，
 //     常駐程式看它改了就重讀設定（bin/config.mjs 的 configMtime）。
 //   - 讀取順序（bin/config.mjs）：這裡存的最優先，再來才是設定檔的 apiKey／keys、apiKeyFile／keyFiles、keyCommands、環境變數。

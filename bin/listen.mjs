@@ -22,7 +22,7 @@
 //   每次貼上 log 記一行「速度：講完到貼上 X 秒（字回來、整理好、貼上各花多少）」（只記 log，小框不顯示秒數）。
 //
 // 轉寫引擎看設定檔（bin/config.mjs）：local 本機 SenseVoice、openai 自己的 key（預設 gpt-transcribe 一般轉寫，
-// 也可以選 gpt-live-transcribe 即時）、cubelv（用 CubeLV 登入，扣點數，bin/cubelv.mjs）、parallelsandbox。設定檔改了會自動換。
+// 也可以選 gpt-live-transcribe 即時）、account（JarvisVoice 帳號，用點數，bin/account.mjs）、parallelsandbox。設定檔改了會自動換。
 // 狀態寫在 status.json 給狀態列讀；有 paused 檔就暫停；有 revert-request 檔就把上一段換回原稿。
 // stdout 每行一個 JSON（state、settings、hud、bubble、draft、pasted、kept、skipped）。
 // 選項：--app 由選單列小程式帶起（log 寫進 listen.log，小程式不在了就結束）。
@@ -36,20 +36,20 @@ import { monitorEventLoopDelay } from 'node:perf_hooks';
 import { createAx } from './ax.mjs';
 import { createMacAgentScreen } from './agent-screen.mjs';
 import { TurnSplitter, BATCH_BYTES, SAMPLE_RATE, createOutputWatch, findFfmpeg } from './common.mjs';
-import { STATE_DIR, aiAvailable, aiKey, appAllowed, configMtime, cubelvAccount, isLiveModel, loadConfig, styleFor } from './config.mjs';
+import { STATE_DIR, aiAvailable, aiKey, appAllowed, configMtime, signedInAccount, isLiveModel, loadConfig, styleFor } from './config.mjs';
 import { DEFAULT_MODELS, PROVIDER_NAMES, editSegment, service } from './editor.mjs';
 import { DEFAULT_URLS } from '../core/providers.mjs';
 import { createBatchEngine } from './engines/batch.mjs';
 import { createLocalEngine, createPreviewer } from './engines/local.mjs';
 import { VOICEPRINT_MODEL, createVoiceprintFilter } from './voiceprint.mjs';
 import { createAudioDebug } from './audio-debug.mjs';
-import { createRealtimeEngine, cubelvConnector, openaiConnector, parallelSandboxConnector } from './engines/realtime.mjs';
+import { createRealtimeEngine, accountConnector, openaiConnector, parallelSandboxConnector } from './engines/realtime.mjs';
 import { appendHistory } from './history.mjs';
 import { createDecider, intentQuestion } from './decide.mjs';
 import { createLearner } from './learn.mjs';
 import { createVocabAuto } from './vocab-auto.mjs';
 import { finishText, isSpeech, withSpacing } from './text.mjs';
-// 一段話講完之後怎麼處理、幾句合成一段、小框的階段：都在核心（CubeLV、平行沙盒同一份），這裡只接 Mac 的接頭
+// 一段話講完之後怎麼處理、幾句合成一段、小框的階段：都在核心（網頁版、平行沙盒同一份），這裡只接 Mac 的接頭
 import { judgeInField, judgeUtterance, pickTarget, planOutput } from '../core/flow.mjs';
 import { createSegmenter, heardText, speechBubble } from '../core/segment.mjs';
 import { createDraftWriter } from '../core/draft.mjs';
@@ -137,7 +137,7 @@ function hudShow(mode) {
   else if (mode.startsWith('error:')) bubble('error', { text: mode.slice(6) });
 }
 
-// 游標旁的小框（app/ui.js 畫）。有哪些階段、標題和內文寫什麼、停多久都在核心（core/bubble.mjs，CubeLV 的頂端 toast 同一份），
+// 游標旁的小框（app/ui.js 畫）。有哪些階段、標題和內文寫什麼、停多久都在核心（core/bubble.mjs，網頁版的頂端 toast 同一份），
 // 這裡照系統語言算好交給 ui.js：{ state, title, body, tone, loud, busy, result, holdMs, at }。
 // at：游標（拿不到就是視窗）在螢幕上的位置 { x, y, w, h, kind: caret | window }（左上角原點），小框放在它下面；null 就放畫面下方中間
 const LANG = process.env.VOICE_DICTATION_LANG || process.env.LANG || '';
@@ -169,21 +169,21 @@ let { config, error: configError } = loadConfig();
 let configStamp = configMtime(config);
 let engine = null;
 
-// AI 整理開著而且有 key（或用 CubeLV 登入了）才走第二層
+// AI 整理開著而且有 key（或登入 JarvisVoice 帳號了）才走第二層
 const aiReady = () => config.ai.enabled && aiAvailable(config);
 const aiSettings = () => ({
   provider: config.ai.provider,
   model: config.ai.models[config.ai.provider] || '',
   apiKey: aiKey(config),
   timeoutMs: config.ai.timeoutMs,
-  cubelvUrl: config.cubelv.apiUrl,
+  accountUrl: config.account.apiUrl,
 });
 
 function announceSettings() {
   const provider = config.ai.provider;
   const model = config.ai.models[provider] || DEFAULT_MODELS[provider];
   const deciderName = config.jev.apiKey ? 'Jev' : aiReady() ? PROVIDER_NAMES[provider] : '';
-  const account = cubelvAccount(config);
+  const account = signedInAccount(config);
   emit({
     type: 'settings',
     engine: config.engine,
@@ -192,12 +192,12 @@ function announceSettings() {
     autoFocus: config.autoFocus,
     commands: config.commands,
     decider: deciderName,
-    cubelv: { loggedIn: !!account, email: account?.email ?? '' },
+    account: { loggedIn: !!account, email: account?.email ?? '' },
     voiceprint: { enabled: !!config.voiceprint.enabled, ready: !!voiceprint, enrolled: !!voiceprint?.enrolled() },
     // 各家有沒有 key（哪裡設的都算）：選單選了沒有 key 的那家，直接開「設定自己的 key…」的對話框
     keys: { openai: !!aiKey(config, 'openai'), deepseek: !!aiKey(config, 'deepseek'), claude: !!aiKey(config, 'claude'), jev: !!config.jev.apiKey },
   });
-  const missing = provider === 'cubelv' ? '，但還沒用 CubeLV 登入，先不整理' : '，但沒有 key，先不整理';
+  const missing = provider === 'account' ? '，但還沒登入 JarvisVoice，先不整理' : '，但沒有 key，先不整理';
   log(`AI 整理：${config.ai.enabled ? `${PROVIDER_NAMES[provider]}（${model}）${aiReady() ? '' : missing}` : '關'}；`
     + `自動找輸入框：${config.autoFocus ? '開' : '關'}；指令模式：${config.commands ? (aiReady() ? '開' : '開，但要先開 AI 整理') : '關'}；`
     + `第三層決策：${deciderName || '沒有（照規則）'}`);
@@ -219,7 +219,7 @@ function startEngine() {
       const text = finishText(raw, {
         output: config.output,
         replacements: config.replacements,
-        alreadyTraditional: config.engine === 'parallelsandbox' || config.engine === 'cubelv',
+        alreadyTraditional: config.engine === 'parallelsandbox' || config.engine === 'account',
       });
       if (!isSpeech(text)) {
         log(`轉寫結果：${text ? `「${text}」只有標點` : '（空的）'}，這句沒有字，不寫`);
@@ -236,7 +236,7 @@ function startEngine() {
   if (config.engine === 'local') engine = createLocalEngine({ ...config.local, ...callbacks });
   else if (config.engine === 'openai' && isLiveModel(config.openai.model)) engine = createRealtimeEngine({ connector: openaiConnector(config.openai), ...callbacks });
   else if (config.engine === 'openai') engine = createBatchEngine({ ...config.openai, hedge: config.speed.hedge, ...callbacks });
-  else if (config.engine === 'cubelv') engine = createRealtimeEngine({ connector: cubelvConnector({ ...config.cubelv, language: cubelvLanguage() }), ...callbacks });
+  else if (config.engine === 'account') engine = createRealtimeEngine({ connector: accountConnector({ ...config.account, language: accountLanguage() }), ...callbacks });
   else engine = createRealtimeEngine({ connector: parallelSandboxConnector(config.parallelsandbox), ...callbacks });
   // 講話中的即時預覽：雲端轉寫才需要（本機轉寫本來就快），有小框才看得到
   const wantPreview = config.speed.preview && bubbleOn() && config.engine !== 'local';
@@ -252,8 +252,8 @@ function startEngine() {
   announceSettings();
 }
 
-// CubeLV 轉寫的辨識語言：設定檔 openai.languages 有寫就照它，沒寫看介面語言（中文是 zh-Hant＝繁中夾英文），其他讓模型自己判斷
-function cubelvLanguage() {
+// JarvisVoice 帳號轉寫的辨識語言：設定檔 openai.languages 有寫就照它，沒寫看介面語言（中文是 zh-Hant＝繁中夾英文），其他讓模型自己判斷
+function accountLanguage() {
   const langs = config.openai.languages.map((l) => String(l).toLowerCase());
   if (langs.some((l) => l.startsWith('zh'))) return 'zh-Hant';
   if (langs.length === 1 && langs[0].startsWith('ja')) return 'ja';
@@ -264,7 +264,7 @@ function cubelvLanguage() {
 // 本機預覽（SenseVoice）的語言：設定檔 local.language 有寫就照它，沒寫照轉寫的語言（auto 會把開頭的「嗯」認成日文打進框）
 function previewLanguage() {
   if (config.local.language && config.local.language !== 'auto') return config.local.language;
-  return { 'zh-Hant': 'zh', ja: 'ja', en: 'en' }[cubelvLanguage()] ?? 'auto';
+  return { 'zh-Hant': 'zh', ja: 'ja', en: 'en' }[accountLanguage()] ?? 'auto';
 }
 
 function reloadConfigIfChanged() {
@@ -327,7 +327,7 @@ const allowed = (bundle) => (process.env.VOICE_DICTATION_APPS
 
 let ffmpeg = null;
 let captureRetryAt = 0;
-// 斷句與開口前 0.4 秒的預錄都在核心（core/turns.mjs 的 TurnSplitter，跟 CubeLV、平行沙盒同一份）
+// 斷句與開口前 0.4 秒的預錄都在核心（core/turns.mjs 的 TurnSplitter，跟 網頁版、平行沙盒同一份）
 let splitter = new TurnSplitter();
 let detector = splitter.detector;
 let pendingChunks = [];
@@ -559,7 +559,7 @@ function finishedPreview(turnNo) {
   return upTo;
 }
 
-// 小框顯示目前聽到的：寫什麼由核心 speechBubble 決定（CubeLV 同一個）。Mac 不開 confirmedOnly：一開口就跟著出字，
+// 小框顯示目前聽到的：寫什麼由核心 speechBubble 決定（網頁版同一個）。Mac 不開 confirmedOnly：一開口就跟著出字，
 // 講完比過聲紋才標「你說的」，別人講的說「別人在講話」（附上聽到的字）。ignored：剛切完的這句聲紋不像你時，本機預覽聽到的字
 // 游標在框裡（寫了草稿、正在邊講邊打，或游標在框裡等著打）：已經打進框的句子不再寫一次，還沒進框的（講不到 1 秒、聲紋還沒比夠、
 // 預覽還沒打上去）寫在小框，講話中一定看得到聽到的字（11/08 使用者：講到一半變成「聽著」，不知道有沒有聽到）；
@@ -732,7 +732,7 @@ function stopCapture() {
   audioDebug.flush();
 }
 
-// ---- 第二層：一段話（幾句）講完才整理（規則在核心 core/segment.mjs，CubeLV 的一直聽同一份）----
+// ---- 第二層：一段話（幾句）講完才整理（規則在核心 core/segment.mjs，網頁版的一直聽同一份）----
 // 每句都轉完、而且停了 ai.segmentPauseMs 才算一段講完；提早整理（speed.pasteAfterMs）：每句都轉完、沒在講話就先整理這段，
 // 整理好時已經停了 pasteAfterMs 就算講完、直接貼；又開口或又多一句就作廢，等整段講完一起整理（跟原本一樣）
 
@@ -924,9 +924,9 @@ function warmUp() {
   if (!config.speed.warm || !(appMode || process.env.VOICE_DICTATION_WARM)) return;
   const urls = [];
   if (config.engine === 'openai' && !isLiveModel(config.openai.model)) urls.push(process.env.VOICE_DICTATION_OPENAI_HTTP_URL || 'https://api.openai.com/v1/audio/transcriptions');
-  if (aiReady() && config.ai.provider !== 'cubelv') urls.push(DEFAULT_URLS[config.ai.provider]);
-  // CubeLV：轉寫與 AI 整理都在同一個網域，暖一條就好（/health 由 router 直接回，不碰後端）
-  if (config.engine === 'cubelv' || (aiReady() && config.ai.provider === 'cubelv')) urls.push(`${config.cubelv.apiUrl}/health`);
+  if (aiReady() && config.ai.provider !== 'account') urls.push(DEFAULT_URLS[config.ai.provider]);
+  // JarvisVoice 帳號：轉寫與 AI 整理都在同一個網域，暖一條就好（/health 由 router 直接回，不碰後端）
+  if (config.engine === 'account' || (aiReady() && config.ai.provider === 'account')) urls.push(`${config.account.apiUrl}/health`);
   if (commandsOn() && config.jev.apiKey) urls.push(DEFAULT_URLS.jev);
   const now = Date.now();
   for (const url of urls) {
@@ -979,7 +979,7 @@ function speedNote(item, prep, pasteStartAt, pastedAt) {
   return { parts, line: `速度：${head}（${bits.join('、')}）` };
 }
 
-// AI 整理＋是不是指令：規則在核心（core/flow.mjs 的 judgeUtterance，CubeLV 同一份），這裡接 Mac 的 AI、Jev 與輔助使用。
+// AI 整理＋是不是指令：規則在核心（core/flow.mjs 的 judgeUtterance，網頁版同一份），這裡接 Mac 的 AI、Jev 與輔助使用。
 // 有 Jev 才另外問決策器：游標在輸入框時看畫面判斷是不是要操作（judgeInField），不在輸入框時問是指令的機率；沒有 Jev 就照 AI 整理的判斷。
 // 對照：cubelv_docs/分析/2026-10-18_JarvisVoice_Jev必要性.md
 async function aiEdit(raw, front, ctx, signal) {
@@ -1014,7 +1014,7 @@ const openApp = (name) => new Promise((resolve) => {
   execFile('/usr/bin/open', ['-a', name], { timeout: 5000 }, (err) => resolve(!err));
 });
 
-// 第三層（指令）：交給核心的操作代理（core/agent.mjs 的 runAgent，CubeLV 同一套）：每一步讀最前面那個 app 的畫面
+// 第三層（指令）：交給核心的操作代理（core/agent.mjs 的 runAgent，網頁版同一套）：每一步讀最前面那個 app 的畫面
 // （bin/agent-screen.mjs），AI 挑工具做，做到畫面就是目標。傳訊息給某人也一樣，要寫的訊息、要去的 app 放進目標裡
 async function runVoiceCommand(result, raw, front, ctx) {
   const goal = [

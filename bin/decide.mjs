@@ -5,12 +5,12 @@ import { service } from './editor.mjs';
 
 export * from '../core/decide.mjs';
 
-// settings()：{ jevKey, jevModel, ai }（ai 是 { provider, model, apiKey, timeoutMs, cubelvUrl }，AI 整理能用時才給；
-// 沒有 Jev 時、或 Jev 拿不準時用。用 CubeLV 登入時沒有 apiKey，complete 打 CubeLV 後端）
+// settings()：{ jevKey, jevModel, ai }（ai 是 { provider, model, apiKey, timeoutMs, accountUrl }，AI 整理能用時才給；
+// 沒有 Jev 時、或 Jev 拿不準時用。用 JarvisVoice 帳號時沒有 apiKey，complete 打 JarvisVoice 伺服器）
 export function createDecider(settings) {
   return coreCreateDecider(() => {
     const s = settings();
     const svc = service({ ...(s.ai ?? {}), jevKey: s.jevKey, jevModel: s.jevModel });
-    return { jev: svc.jev, complete: s.ai && (s.ai.apiKey || s.ai.provider === 'cubelv') ? svc.complete : null };
+    return { jev: svc.jev, complete: s.ai && (s.ai.apiKey || s.ai.provider === 'account') ? svc.complete : null };
   });
 }
