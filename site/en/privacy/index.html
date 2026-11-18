@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy Policy · JarvisVoice</title>
+<meta name="description" content="JarvisVoice privacy policy: what stays on your Mac, what gets sent, to whom, and how to delete your account.">
+<link rel="icon" href="../../favicon.png">
+<link rel="canonical" href="https://jarvis-voice.com/en/privacy/">
+<link rel="alternate" hreflang="zh-Hant" href="https://jarvis-voice.com/privacy/">
+<link rel="alternate" hreflang="en" href="https://jarvis-voice.com/en/privacy/">
+<link rel="alternate" hreflang="x-default" href="https://jarvis-voice.com/en/privacy/">
+<style>
+  :root {
+    --bg: #fbfaf8;
+    --surface: #ffffff;
+    --text: #18181b;
+    --muted: #5b5b63;
+    --line: #e6e4df;
+    --accent: #2f54d9;
+    --code-bg: #f2f1ed;
+    --icon-filter: none;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #111214;
+      --surface: #1a1b1e;
+      --text: #ececee;
+      --muted: #a3a3ab;
+      --line: #2c2d31;
+      --accent: #8ea4ff;
+      --code-bg: #202125;
+      --icon-filter: invert(1);
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 17px/1.7 -apple-system, BlinkMacSystemFont, "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  main { max-width: 960px; margin: 0 auto; padding: 0 16px; }
+  a { color: var(--accent); }
+  h1, h2, h3 { line-height: 1.3; margin: 0; }
+  h2 { font-size: 23px; margin-bottom: 14px; }
+  h3 { font-size: 18px; margin: 18px 0 6px; }
+  p { margin: 0 0 12px; }
+  code { font: 15px ui-monospace, "SF Mono", Menlo, monospace; background: var(--code-bg); padding: 1px 5px; border-radius: 5px; }
+  section { padding: 36px 0; border-top: 1px solid var(--line); }
+  ul, ol { margin: 0 0 12px; padding-left: 22px; }
+  li { margin: 6px 0; }
+
+  .hero { padding: 64px 0 40px; display: grid; gap: 14px; justify-items: start; position: relative; }
+  .lang { position: absolute; top: 24px; right: 0; font-size: 15px; color: var(--muted); text-decoration: none; border: 1px solid var(--line); border-radius: 8px; padding: 4px 10px; }
+  .brand { display: flex; align-items: center; gap: 12px; color: var(--text); text-decoration: none; font-weight: 600; font-size: 19px; }
+  .brand img { width: 48px; height: 48px; filter: var(--icon-filter); }
+  .hero h1 { font-size: clamp(30px, 5vw, 42px); letter-spacing: -0.01em; }
+  .note { font-size: 15px; color: var(--muted); }
+
+  footer { padding: 32px 0 56px; border-top: 1px solid var(--line); color: var(--muted); font-size: 15px; }
+
+  @media (max-width: 600px) {
+    body { font-size: 16px; }
+    .hero { padding: 56px 0 32px; }
+    section { padding: 30px 0; }
+    h2 { font-size: 21px; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <header class="hero">
+    <a class="lang" href="../../privacy/" onclick="try { localStorage.setItem('lang', 'zh'); } catch (e) {}">中文</a>
+    <a class="brand" href="../"><img src="../../icon.png" alt="">JarvisVoice</a>
+    <h1>Privacy Policy</h1>
+    <p>JarvisVoice is a macOS menu bar app for voice typing made by Runvo LLC ("we", "us"). Its source code is published on <a href="https://github.com/urusaqqrun/jarvis-voice">GitHub</a> under the MIT license. This policy explains what stays on your Mac when you use JarvisVoice, what gets sent and to whom, and how you can manage it.</p>
+    <p class="note">Effective and last updated: November 18, 2026</p>
+  </header>
+
+  <section>
+    <h2>1. Scope</h2>
+    <ul>
+      <li>This policy covers the JarvisVoice app, the JarvisVoice account (including credits), and the jarvis-voice.com website.</li>
+      <li>It does not cover third-party services you choose yourself (for example OpenAI with your own key) or other websites linked from ours. Those are governed by their own privacy policies.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>2. Three Ways to Use It, Three Data Paths</h2>
+    <p>JarvisVoice can transcribe and clean up your speech in three ways. Whichever you pick in the menu decides where your data goes:</p>
+    <ol>
+      <li><strong>On-device recognition (default)</strong>: speech is recognized on your Mac with SenseVoice (sherpa-onnx), and your audio never leaves your Mac. The recognition model is downloaded from GitHub the first time.</li>
+      <li><strong>Your own keys</strong>: audio and the text to clean up go straight from your Mac to the service you chose. They never pass through us, and we never receive them. See Section 5.</li>
+      <li><strong>JarvisVoice account</strong>: no keys needed; you buy credits in the app. Audio and the text to clean up go to our server, which passes them to an AI model provider and returns the result. See Section 6.</li>
+    </ol>
+    <p>Transcription and AI cleanup can be set separately, for example on-device transcription with AI cleanup on your own key.</p>
+  </section>
+
+  <section>
+    <h2>3. Data That Stays on Your Mac</h2>
+    <p>The following stays on your Mac, and we never receive it:</p>
+    <ul>
+      <li>History (transcripts and cleaned-up text), vocabulary and settings: kept in the <code>~/.voice-dictation</code> folder in your home folder.</li>
+      <li>Your own keys and your JarvisVoice account sign-in token: kept in the macOS Keychain.</li>
+      <li>Your voiceprint ("Only my voice", off by default): computed and stored on your Mac.</li>
+      <li>Debug recordings (off by default): saved on your Mac only if you turn them on.</li>
+      <li>The on-device recognition model: stored on your Mac after it is downloaded.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>4. What Gets Sent</h2>
+    <p>When you are not using on-device recognition, or when AI cleanup and voice commands are on, the following is sent. Where it goes depends on whether you use your own keys (Section 5) or a JarvisVoice account (Section 6):</p>
+    <ul>
+      <li><strong>Audio</strong>: only segments that contain speech. JarvisVoice keeps listening, so people talking near you are transcribed too; choose "Pause listening" in the menu during meetings or videos.</li>
+      <li><strong>AI cleanup (when on)</strong>: what you said, plus about 400 characters on each side of the cursor, the selected text, the text visible in the window (the last ~1,500 characters), the app name, the window title and the URL.</li>
+      <li><strong>Voice commands (layer 3, when on)</strong>: the command you said, and the names of the buttons, links and text fields on screen.</li>
+    </ul>
+    <p>Text on screen may include the emails, chats or documents you are looking at. When working with sensitive content, you can turn off AI cleanup or voice commands, or pause listening, from the menu.</p>
+  </section>
+
+  <section>
+    <h2>5. Using Your Own Keys</h2>
+    <ul>
+      <li>Transcription: audio goes straight to the transcription service you chose (OpenAI, or ParallelSandbox).</li>
+      <li>AI cleanup: the text to clean up and its context go straight to the AI provider you chose (OpenAI, DeepSeek or Anthropic Claude). OpenAI's and Anthropic's servers are primarily in the United States; DeepSeek's servers are in China.</li>
+      <li>Voice commands: each step is decided by a decision maker, which may be Jev from TypeSafe (with your own key) or the AI provider you chose.</li>
+    </ul>
+    <p>In each case you deal with that service directly. Your data does not pass through us, and we never receive it. That service's terms and privacy policy govern how it handles your data. Your keys are stored in the macOS Keychain and used only to call the services you chose.</p>
+  </section>
+
+  <section>
+    <h2>6. Using a JarvisVoice Account</h2>
+    <h3>Signing in</h3>
+    <ul>
+      <li>Choose "Sign in to JarvisVoice…" in the menu, sign in in your browser and choose Allow (OAuth). This sign-in is limited to voice input: JarvisVoice cannot see or change anything else in your account.</li>
+      <li>The sign-in token is stored in your Mac's Keychain, not in the config file. You can sign out from the menu, or revoke it any time under Connected AI tools in your account settings.</li>
+    </ul>
+    <h3>How your audio and text are handled</h3>
+    <ul>
+      <li>Audio (segments with speech) and the text to clean up with its context (as listed in Section 4) are sent to our server, <code>app-api.jarvis-voice.com</code>. The server passes them to an AI model provider (for example OpenAI) for transcription and cleanup, then returns the result to your Mac. We use each provider's API service under its API terms.</li>
+      <li>We use your audio and text only as needed to process that request, for billing and to prevent abuse. We do not use them to train models or for any other purpose.</li>
+      <li>Credits are charged by usage: transcription by recorded minutes, AI cleanup and voice-command decisions by usage.</li>
+    </ul>
+    <h3>Account data we keep</h3>
+    <ul>
+      <li>Your email address (to identify your account and contact you).</li>
+      <li>Your credit balance and usage records.</li>
+      <li>Payment records for credit purchases (see Section 7).</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>7. Buying Credits and Payments (Stripe)</h2>
+    <ul>
+      <li>Choose "Buy credits…" in the menu and pick a pack; Stripe's payment page opens in your browser.</li>
+      <li>Your card number and other payment details are handled by Stripe. We never handle or store your card number. We only receive the payment result, which we use to add credits to your account, and we keep a payment record.</li>
+      <li>Stripe handles your payment data under the <a href="https://stripe.com/privacy">Stripe Privacy Policy</a>.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>8. What We Don't Do</h2>
+    <ul>
+      <li>JarvisVoice contains no analytics, tracking or advertising SDKs and does not report how you use it.</li>
+      <li>Update checks only contact GitHub and send no usage data. When you download the recognition model or check for updates, GitHub handles the connection data under its own privacy policy.</li>
+      <li>The jarvis-voice.com website has no analytics or tracking scripts.</li>
+      <li>We do not sell your personal information.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>9. Sharing with Third Parties</h2>
+    <p>We do not sell or share your personal information with third parties without your consent, except in these cases:</p>
+    <ul>
+      <li>To provide the features you use: with a JarvisVoice account, audio and text are sent to AI model providers for processing (Section 6); when you buy credits, Stripe processes the payment (Section 7).</li>
+      <li>With your consent.</li>
+      <li>When required by law.</li>
+      <li>To protect you from danger to your life, body, freedom or property.</li>
+      <li>When your conduct violates the Terms of Service or may harm the Service, other users or anyone else, and disclosure is necessary to identify you, contact you or take legal action.</li>
+    </ul>
+    <p>When we engage vendors to help process data, we require them to keep it confidential and we supervise them.</p>
+  </section>
+
+  <section>
+    <h2>10. Data Protection</h2>
+    <ul>
+      <li>Connections between the app and our server are encrypted with TLS.</li>
+      <li>Only authorized personnel, bound by confidentiality obligations, can access account data.</li>
+      <li>Your keys and sign-in token are kept in the macOS Keychain, not in ordinary files.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>11. Data Retention</h2>
+    <ul>
+      <li>Data on your Mac: kept until you delete it yourself (see the end of Section 12).</li>
+      <li>Account data (email, credit balance and usage records, payment records): kept while your account exists. When you delete your account, we delete it from our operational systems; residual copies in backups are purged as backup cycles expire. Payment and credit transaction records that we are required by law to keep are retained.</li>
+      <li>Your audio and the text to clean up: used only as needed to process the request, for billing and to prevent abuse, as described in Section 6.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>12. Deleting Your Account</h2>
+    <p>Your JarvisVoice account is the same account used by CubeLV, ParallelSandbox and Shouuut. <strong>Deleting your JarvisVoice account deletes the entire account, including your CubeLV, ParallelSandbox and Shouuut accounts and their data if you use them with the same account.</strong></p>
+    <h3>How to delete</h3>
+    <ul>
+      <li>In an app: sign in to CubeLV with the same account, go to Settings → Account, scroll to the bottom and choose "Delete My Account". See the <a href="https://cubelv.com/privacy/delete-account/en.html">CubeLV Account Deletion Guide</a>. You can also delete it from the Account page in Shouuut; see <a href="https://shouuut.com/en/delete-account/">Delete your Shouuut account</a>.</li>
+      <li>If you cannot sign in: send an email from your registered email address to <a href="mailto:runvo.tech@gmail.com">runvo.tech@gmail.com</a> with the subject "Account Deletion Request". We will process your request within a reasonable period.</li>
+    </ul>
+    <h3>What is deleted</h3>
+    <ul>
+      <li>Your JarvisVoice, CubeLV, ParallelSandbox and Shouuut accounts, sign-in identity and access.</li>
+      <li>Your content in those products, your profile information, remaining credits, usage records, settings and preferences.</li>
+    </ul>
+    <p>Payment and credit transaction records that we are required by law to keep are retained. Deleted data cannot be restored; residual copies in backups are purged as backup cycles expire.</p>
+    <h3>Data on your Mac</h3>
+    <p>Deleting your account does not touch the data on your Mac. To remove it, sign out of JarvisVoice from the menu, then delete the JarvisVoice app and the <code>~/.voice-dictation</code> folder. You can delete your own keys in Keychain Access.</p>
+  </section>
+
+  <section>
+    <h2>13. Children</h2>
+    <p>JarvisVoice is not designed for children under 13, and we do not knowingly collect personal information from children. If you learn that a child is using a JarvisVoice account, please email us and we will delete the related data.</p>
+  </section>
+
+  <section>
+    <h2>14. Changes to This Policy</h2>
+    <p>We may update this policy as needed. Changes will be posted on this page, and the date above will be updated.</p>
+  </section>
+
+  <section>
+    <h2>15. Contact Us</h2>
+    <p>If you have questions about this policy, or want to access, correct or delete your personal information, email us at <a href="mailto:runvo.tech@gmail.com">runvo.tech@gmail.com</a>.</p>
+  </section>
+
+  <footer>
+    <a href="../">Home</a> · <a href="../privacy/">Privacy policy</a> · <a href="../terms/">Terms of service</a><br>
+    © 2026 Runvo LLC
+  </footer>
+</main>
+</body>
+</html>
