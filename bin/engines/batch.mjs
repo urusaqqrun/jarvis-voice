@@ -4,11 +4,16 @@
 // 提早送：listen 在停了 0.4 秒（暫定斷句）時呼叫 speculate()，先把到這裡的聲音送出去；又開口就 discard()，
 // 沒有的話 0.85 秒切句時 commit() 直接用先送的那份（後面多的只有靜音），省掉等確定講完的 0.45 秒。
 // hedge：每次同時送幾份、誰先回用誰（core/hedge.mjs），砍掉偶爾特別慢的那幾次。
+// 沒網路（連不上 OpenAI）：重試一次還是不行，這句改用 fallback（本機 SenseVoice）認，不丟掉；
+// 剛斷過網（OFFLINE_MS 內）就不再等重試，直接用本機的（11/20 斷網七分鐘，那段講的全部沒寫）。
 
 import { hedge as hedged } from '../../core/hedge.mjs';
+import { networkError } from '../../core/net.mjs';
 
 const MIN_BYTES = 24000 * 2 * 0.15; // 不到 0.15 秒當雜音
 const TIMEOUT_MS = 20_000;
+const RETRY_MS = 800;
+const OFFLINE_MS = 30_000;
 
 export function wavFromPcm16(pcm, sampleRate = 24000) {
   const header = Buffer.alloc(44);
@@ -28,7 +33,8 @@ export function wavFromPcm16(pcm, sampleRate = 24000) {
   return Buffer.concat([header, pcm]);
 }
 
-export function createBatchEngine({ apiKey, model = 'gpt-transcribe', languages = [], prompt = '', keywords = [], hedge = 1, onFinal, onError, log }) {
+// fallback(pcm24k) → 本機認到的字（Promise）；沒有本機模型給 null
+export function createBatchEngine({ apiKey, model = 'gpt-transcribe', languages = [], prompt = '', keywords = [], hedge = 1, fallback = null, onFinal, onError, log }) {
   const url = process.env.VOICE_DICTATION_OPENAI_HTTP_URL || 'https://api.openai.com/v1/audio/transcriptions';
   let chunks = [];
   let bytes = 0;
@@ -36,6 +42,7 @@ export function createBatchEngine({ apiKey, model = 'gpt-transcribe', languages 
   let deliverSeq = 0;
   let inflight = 0;
   let closed = false;
+  let offlineAt = 0; // 上次連不上 OpenAI 的時間
   const results = new Map(); // seq → { text, info }；失敗是 null（錯誤已經記過）
   let early = null; // 提早送的那份：{ bytes, started, promise, abort }
 
@@ -61,12 +68,21 @@ export function createBatchEngine({ apiKey, model = 'gpt-transcribe', languages 
     for (const lang of languages) form.append('languages[]', lang);
     for (const word of keywords) form.append('keywords[]', word);
     if (prompt) form.append('prompt', prompt);
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${apiKey}` },
-      body: form,
-      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(TIMEOUT_MS)]) : AbortSignal.timeout(TIMEOUT_MS),
-    });
+    let res;
+    try {
+      res = await fetch(url, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${apiKey}` },
+        body: form,
+        signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(TIMEOUT_MS)]) : AbortSignal.timeout(TIMEOUT_MS),
+      });
+    } catch (err) {
+      const reason = networkError(err, 'OpenAI');
+      if (!reason) throw err;
+      const error = new Error(reason);
+      error.offline = true;
+      throw error;
+    }
     if (!res.ok) {
       const detail = await res.text().catch(() => '');
       const message = detail.match(/"message":\s*"([^"]+)"/)?.[1] ?? detail.slice(0, 160);
@@ -92,13 +108,27 @@ export function createBatchEngine({ apiKey, model = 'gpt-transcribe', languages 
       let text;
       let usedEarly = !!sent;
       try {
-        text = await (sent ?? start(wav)).promise;
+        try {
+          text = await (sent ?? start(wav)).promise;
+        } catch (err) {
+          if (err.retry === false) throw err;
+          if (err.offline && Date.now() - offlineAt < OFFLINE_MS) throw err; // 剛斷過網：不等重試
+          await new Promise((r) => setTimeout(r, err.offline ? RETRY_MS : 1000)); // 網路或伺服器問題重試一次
+          usedEarly = false;
+          text = await start(wav).promise;
+        }
       } catch (err) {
-        if (err.retry === false) throw err;
-        if (!sent) await new Promise((r) => setTimeout(r, 1000)); // 網路或伺服器問題重試一次
-        usedEarly = false;
-        text = await start(wav).promise;
+        if (!err.offline) throw err;
+        offlineAt = Date.now();
+        const local = fallback?.(Buffer.from(wav.subarray(44)));
+        if (!local) throw err;
+        text = await local;
+        log(`${err.message}：這句改用本機辨識（${((wav.length - 44) / 48000).toFixed(1)} 秒音訊用 ${Date.now() - started} ms）`);
+        onError(`${err.message}，這句改用本機辨識`);
+        results.set(seq, { text, info: { ...meta, ms: Date.now() - started, early: false, local: true } });
+        return;
       }
+      offlineAt = 0;
       const seconds = ((usedEarly ? sent.bytes : wav.length - 44) / 48000).toFixed(1);
       log(`OpenAI 一般轉寫 ${seconds} 秒音訊用 ${Date.now() - started} ms${usedEarly ? '（停 0.4 秒就先送的那份）' : ''}${hedge > 1 ? `（同時送 ${hedge} 份）` : ''}`);
       results.set(seq, { text, info: { ...meta, ms: Date.now() - started, early: usedEarly } });

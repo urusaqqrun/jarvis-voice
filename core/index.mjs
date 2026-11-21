@@ -20,6 +20,7 @@ export { isSpeech, onlyFiller, withSpacing } from './text.mjs';
 export { readingOrder, ocrText, joinScreen } from './ocr.mjs';
 export { PROVIDERS, DEFAULT_MODELS, PROVIDER_NAMES, DEFAULT_URLS, ownKeyService } from './providers.mjs';
 export { hedge } from './hedge.mjs';
+export { networkError } from './net.mjs';
 export { judgeUtterance, judgeInField, planOutput, pickTarget, navigationIntent, isExplicitCommand, NOT_IN_FIELD_SURE } from './flow.mjs';
 export { createDraftWriter, LIVE_PAUSE_MS } from './draft.mjs';
 export { createSegmenter, heardText, speechBubble, SEGMENT_PAUSE_MS, PASTE_AFTER_MS, MAX_SEGMENT_CHARS } from './segment.mjs';

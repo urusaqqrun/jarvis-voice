@@ -206,6 +206,15 @@ function announceSettings() {
 
 let previewer = null;
 let previewModel = '';
+let fallbackRecognizer; // 沒開預覽時，沒網路才載的本機模型（null＝載不起來）
+
+// 沒網路、連不上 OpenAI 時這句改用本機 SenseVoice 認：有即時預覽就借它的模型，沒有才另外載一份
+function localFallback(pcm) {
+  if (!previewer && fallbackRecognizer === undefined) {
+    fallbackRecognizer = createPreviewer({ model: config.local.model, language: previewLanguage(), log });
+  }
+  return (previewer ?? fallbackRecognizer)?.recognize(pcm, Infinity) ?? null;
+}
 
 function startEngine() {
   engine?.close();
@@ -235,7 +244,7 @@ function startEngine() {
   };
   if (config.engine === 'local') engine = createLocalEngine({ ...config.local, ...callbacks });
   else if (config.engine === 'openai' && isLiveModel(config.openai.model)) engine = createRealtimeEngine({ connector: openaiConnector(config.openai), ...callbacks });
-  else if (config.engine === 'openai') engine = createBatchEngine({ ...config.openai, hedge: config.speed.hedge, ...callbacks });
+  else if (config.engine === 'openai') engine = createBatchEngine({ ...config.openai, hedge: config.speed.hedge, fallback: localFallback, ...callbacks });
   else if (config.engine === 'account') engine = createRealtimeEngine({ connector: accountConnector({ ...config.account, language: accountLanguage() }), ...callbacks });
   else engine = createRealtimeEngine({ connector: parallelSandboxConnector(config.parallelsandbox), ...callbacks });
   // 講話中的即時預覽：雲端轉寫才需要（本機轉寫本來就快），有小框才看得到

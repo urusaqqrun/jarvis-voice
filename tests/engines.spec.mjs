@@ -172,6 +172,54 @@ test('OpenAI 一般轉寫：伺服器錯誤重試一次；key 錯不重試、直
   }
 });
 
+test('OpenAI 一般轉寫：沒網路時寫清楚原因（不是 fetch failed），這句改用本機辨識不丟掉；剛斷過網不再等重試', async () => {
+  process.env.VOICE_DICTATION_OPENAI_HTTP_URL = 'http://api.openai.invalid/v1/audio/transcriptions'; // .invalid 一定查不到
+  try {
+    const got = [];
+    const errors = [];
+    const heard = [];
+    const engine = createBatchEngine({
+      apiKey: 'sk-test',
+      fallback: async (pcm) => { heard.push(pcm.length); return `本機${heard.length}`; },
+      onFinal: (text, info) => got.push([text, info.local]), onError: (m) => errors.push(m), log: () => {},
+    });
+    engine.append(speech(0.5, 1));
+    engine.commit();
+    await waitFor(() => got.length === 1);
+    const started = Date.now();
+    engine.append(speech(0.6, 1));
+    engine.commit();
+    await waitFor(() => got.length === 2);
+    assert.ok(Date.now() - started < 600, `剛斷過網還等了重試（${Date.now() - started} ms）`);
+    assert.deepEqual(got, [['本機1', true], ['本機2', true]]);
+    assert.deepEqual(heard, [24000, 28800]); // 整句的聲音（不含 WAV 檔頭）
+    assert.match(errors[0], /^沒網路，連不上 OpenAI（E[A-Z_]+），這句改用本機辨識$/);
+
+    // 沒有本機模型：還是沒寫，但原因寫清楚
+    const finals = [];
+    const noLocal = createBatchEngine({ apiKey: 'sk-test', fallback: () => null, onFinal: (t) => finals.push(t), onError: (m) => errors.push(m), log: () => {} });
+    noLocal.append(speech(0.5, 1));
+    noLocal.commit();
+    await waitFor(() => errors.length === 3);
+    assert.match(errors[2], /^沒網路，連不上 OpenAI（E[A-Z_]+）$/);
+    assert.deepEqual(finals, []);
+  } finally {
+    delete process.env.VOICE_DICTATION_OPENAI_HTTP_URL;
+  }
+});
+
+test('連線層的錯翻成看得懂的話：被切斷、逾時、拒絕連線；不是連線的錯不管', async () => {
+  const { networkError } = await import('../core/net.mjs');
+  const failed = (cause) => Object.assign(new TypeError('fetch failed'), { cause });
+  assert.equal(networkError(failed({ code: 'ENOTFOUND', hostname: 'api.deepseek.com' })), '沒網路，連不上 api.deepseek.com（ENOTFOUND）');
+  assert.equal(networkError(failed({ code: 'ECONNRESET' }), 'OpenAI'), '跟 OpenAI 的連線被切斷，網路不穩（ECONNRESET）');
+  assert.equal(networkError(failed({ code: 'UND_ERR_CONNECT_TIMEOUT' }), 'OpenAI'), '連 OpenAI 逾時，網路不穩或斷了（UND_ERR_CONNECT_TIMEOUT）');
+  assert.equal(networkError(failed(Object.assign(new AggregateError([{ code: 'ECONNREFUSED' }]), { code: 'ECONNREFUSED' })), 'OpenAI'), 'OpenAI 拒絕連線（ECONNREFUSED）');
+  assert.equal(networkError(new DOMException('timed out', 'TimeoutError'), 'OpenAI'), '等 OpenAI 回應逾時（網路很慢或斷了）');
+  assert.equal(networkError(new Error('OpenAI 轉寫失敗（HTTP 401）')), '');
+  assert.equal(networkError(new DOMException('aborted', 'AbortError')), '');
+});
+
 test('OpenAI 一般轉寫：轉出空字串也照順序交出去（listen 會記「轉寫結果：（空的）」）、太短的記一行 log', async () => {
   const server = await fakeTranscriptions((call, n) => ({ body: { text: n === 1 ? '' : '第二句' } }));
   try {

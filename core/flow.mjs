@@ -6,6 +6,7 @@
 // 不問使用者：拿不準就照 AI 整理的判斷；整理失敗照原稿寫；挑不到框由 App 決定（Mac 小框寫「沒貼上」、CubeLV 交給 CEO）。
 
 import { describeElement, fieldQuestions, inFieldIntentQuestion, inFieldVerdict, referenceQuestion } from './decide.mjs';
+import { networkError } from './net.mjs';
 import { rankTargets } from './targeter.mjs';
 
 // 游標不在輸入框、AI 說是打字時，Jev 要這麼確定是指令才改當指令
@@ -70,7 +71,7 @@ export async function judgeUtterance({ raw, inField, edit, judge = null, intent 
     return result;
   } catch (err) {
     if (aborted()) return null; // 提早整理作廢了
-    return { failed: err?.message ?? String(err) };
+    return { failed: networkError(err) || (err?.message ?? String(err)) };
   }
 }
 

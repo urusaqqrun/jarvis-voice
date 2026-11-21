@@ -276,6 +276,8 @@ export function ownKeyService(input: { provider?: string; model?: string; apiKey
   { model: string; complete: Complete | null; jev: Jev | null };
 /** 同一個請求同時送 copies 份，誰先成功用誰、其他的取消；call 要吃 args.signal */
 export function hedge<A extends { signal?: AbortSignal }, R>(call: (args: A) => Promise<R>, copies?: number): (args: A) => Promise<R>;
+/** 連線層的錯（fetch failed、逾時）翻成看得懂的話（沒網路、連線被切斷…）；不是連線層的錯回 '' */
+export function networkError(err: unknown, name?: string): string;
 export const CORE_VERSION: string;
 
 /** 聲紋過濾：聲紋（正規化過的 embedding）由呼叫端算，這裡判斷是不是使用者 */

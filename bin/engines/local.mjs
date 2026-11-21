@@ -110,6 +110,7 @@ export function createLocalEngine({ model, language = 'auto', threads = 2, onFin
 // 即時預覽：雲端轉寫時，講話中用本機 SenseVoice 認目前這句（一句 0.15 秒左右）：游標在框裡就邊講邊打，不然在游標旁的小框顯示。
 // 載不起來（沒下載模型）就沒有預覽，不算錯。recognize(pcm24k) → 認出來的字（簡體，呼叫端轉正體）。
 // language：auto 會把開頭的「嗯」認成日文「うん」，知道講什麼語言就給（zh、en、ja、ko、yue）
+// 沒網路時也拿它認整句（maxSeconds 給 Infinity，不截掉前面）
 const PREVIEW_MAX_SECONDS = 15; // 很長的一句只認最後 15 秒，免得越講越慢
 export function createPreviewer({ model, language = 'auto', threads = 2, log = () => {} }) {
   let recognizer = null;
@@ -132,8 +133,8 @@ export function createPreviewer({ model, language = 'auto', threads = 2, log = (
   }
   const resampler = new sherpa.LinearResampler(24000, 16000);
   return {
-    async recognize(pcm) {
-      const keep = PREVIEW_MAX_SECONDS * 48000;
+    async recognize(pcm, maxSeconds = PREVIEW_MAX_SECONDS) {
+      const keep = maxSeconds * 48000;
       const tail = pcm.length > keep ? pcm.subarray(pcm.length - keep) : pcm;
       const i16 = new Int16Array(tail.buffer, tail.byteOffset, Math.floor(tail.length / 2));
       resampler.reset();
