@@ -100,6 +100,7 @@
   th { font-weight: 600; color: var(--muted); font-size: 14px; }
   .table-wrap { overflow-x: auto; }
 
+  #about h3 { margin-top: 24px; }
   ul.plain { margin: 0; padding-left: 22px; }
   ul.plain li { margin: 6px 0; }
 
@@ -128,6 +129,21 @@
     </div>
     <p class="note">Apple Silicon Mac, macOS 14 or later. Or use Homebrew: <code>brew install --cask urusaqqrun/tap/jarvis-voice</code>. Open source (<a href="https://github.com/urusaqqrun/jarvis-voice">GitHub</a>).</p>
   </header>
+
+  <section id="about">
+    <h2>About JarvisVoice</h2>
+    <p>JarvisVoice is a voice assistant for your Mac. It turns what you say into text and types it into the app you're using, cleans that text up with AI if you want, and when you say a command it operates the app for you. It works with speech and text only.</p>
+    <h3>How JarvisVoice uses Google Sign-In</h3>
+    <ul class="plain">
+      <li>Google Sign-In is only for signing in to a JarvisVoice account. You need an account only if you want to use credits instead of your own keys; the app works without one.</li>
+      <li>We request only the basic sign-in scopes (openid, email and profile), which give us your name, email address and profile picture.</li>
+      <li>We use them only to create and identify your account and to show who is signed in. We don't request access to Gmail, Drive, Photos, Contacts, Calendar or any other Google data, and we don't use Google user data for advertising, sell it or use it to train AI models.</li>
+      <li>JarvisVoice's use of information received from Google APIs adheres to the <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data Policy</a>, including the Limited Use requirements.</li>
+    </ul>
+    <h3>No image generation</h3>
+    <p>JarvisVoice does not generate, edit or share images or videos of any kind, including intimate or sexual imagery of real people (AI NCII), and does not use Google APIs or Google user data for any such purpose. Its AI only transcribes speech, rewrites text and picks which button or text field to use. For apps whose text it can't read, it reads the text in the frontmost window with macOS's built-in text recognition, on your Mac; that image is never saved or sent.</p>
+    <p class="note">See the <a href="privacy/">privacy policy</a> and <a href="terms/">terms of service</a>.</p>
+  </section>
 
   <section>
     <h2>Three layers, all on by default</h2>

@@ -106,6 +106,10 @@
   th { font-weight: 600; color: var(--muted); font-size: 14px; }
   .table-wrap { overflow-x: auto; }
 
+  .about-en { margin-top: 28px; padding: 22px; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; }
+  #about .about-en h3 { margin: 0 0 12px; }
+  h4 { font-size: 17px; margin: 16px 0 6px; }
+  #about h3 { margin-top: 24px; }
   ul.plain { margin: 0; padding-left: 22px; }
   ul.plain li { margin: 6px 0; }
 
@@ -134,6 +138,35 @@
     </div>
     <p class="note">Apple Silicon 的 Mac、macOS 14 以上。也可以用 Homebrew：<code>brew install --cask urusaqqrun/tap/jarvis-voice</code>。開源（<a href="https://github.com/urusaqqrun/jarvis-voice">GitHub</a>）。</p>
   </header>
+
+  <section id="about">
+    <h2>JarvisVoice 是什麼</h2>
+    <p>JarvisVoice 是 Mac 上的語音助理：把你講的話轉成文字、寫進正在用的 app，要的話用 AI 整理；講指令，它就幫你操作 app。它只處理語音和文字。</p>
+    <h3>Google 登入拿來做什麼</h3>
+    <ul class="plain">
+      <li>Google 登入只用來登入 JarvisVoice 帳號。想用點數、不想自己準備金鑰才需要帳號；不登入也能用。</li>
+      <li>只要求基本登入範圍（openid、email、profile），拿到的是你的名字、email 和大頭貼。</li>
+      <li>這些資料只用來建立、辨識你的帳號和顯示誰登入了。不要求 Gmail、雲端硬碟、相簿、聯絡人、日曆或任何其他 Google 資料，也不拿 Google 使用者資料做廣告、賣給別人或訓練 AI 模型。</li>
+      <li>JarvisVoice 使用從 Google API 取得的資料，遵守 <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data Policy</a>，包括 Limited Use 規定。</li>
+    </ul>
+    <h3>不產生影像</h3>
+    <p>JarvisVoice 不產生、不修改、不分享任何圖片或影片，包括真實人物的私密或性影像（AI NCII），也不把 Google API 或 Google 使用者資料用在這類用途。它的 AI 只做語音轉文字、整理文字、挑要按的按鈕和要寫的輸入框。遇到讀不到文字的 app，它在你的 Mac 上用 macOS 內建的文字辨識讀前景視窗裡的字；那張圖不存檔、不送出。</p>
+    <p class="note">詳見<a href="privacy/">隱私權政策</a>和<a href="terms/">服務條款</a>。</p>
+    <div class="about-en" lang="en">
+      <h3>About JarvisVoice (English)</h3>
+      <p>JarvisVoice is a voice assistant for your Mac. It turns what you say into text and types it into the app you're using, cleans that text up with AI if you want, and when you say a command it operates the app for you. It works with speech and text only.</p>
+      <h4>How JarvisVoice uses Google Sign-In</h4>
+      <ul class="plain">
+        <li>Google Sign-In is only for signing in to a JarvisVoice account. You need an account only if you want to use credits instead of your own keys; the app works without one.</li>
+        <li>We request only the basic sign-in scopes (openid, email and profile), which give us your name, email address and profile picture.</li>
+        <li>We use them only to create and identify your account and to show who is signed in. We don't request access to Gmail, Drive, Photos, Contacts, Calendar or any other Google data, and we don't use Google user data for advertising, sell it or use it to train AI models.</li>
+        <li>JarvisVoice's use of information received from Google APIs adheres to the <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data Policy</a>, including the Limited Use requirements.</li>
+      </ul>
+      <h4>No image generation</h4>
+      <p>JarvisVoice does not generate, edit or share images or videos of any kind, including intimate or sexual imagery of real people (AI NCII), and does not use Google APIs or Google user data for any such purpose. Its AI only transcribes speech, rewrites text and picks which button or text field to use. For apps whose text it can't read, it reads the text in the frontmost window with macOS's built-in text recognition, on your Mac; that image is never saved or sent.</p>
+      <p class="note">See the <a href="en/privacy/">privacy policy</a> and <a href="en/terms/">terms of service</a>.</p>
+    </div>
+  </section>
 
   <section>
     <h2>三層，預設全開</h2>
